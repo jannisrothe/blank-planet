@@ -3,7 +3,7 @@ import { createWorld } from './world.js';
 import { createGround, heightAt } from './terrain.js';
 import { createFlight } from './flight.js';
 import { Colliders } from './collision.js';
-import { PigmentSim } from './ink/pigmentSim.js';
+import { PaintMap } from './ink/paintMap.js';
 import { applyInk, updateInkUniforms } from './ink/inkMaterial.js';
 import { rng } from './random.js';
 import { samplePigment } from './palette.js';
@@ -12,10 +12,11 @@ import { createGrass } from './props/grass.js';
 import { createTrees } from './props/trees.js';
 import { createMushrooms, createReeds, createRocks } from './props/smallProps.js';
 import { createMoth } from './props/moth.js';
+import { Droplets } from './props/droplets.js';
 import { createIslands, createArches, createGrowths, createSpires } from './props/features.js';
 import { createComposer } from './post/composer.js';
 import { Ambience } from './audio.js';
-import { density } from './config.js';
+import { density, droplet as dropCfg } from './config.js';
 
 // Debug tooling is opt-in via ?debug, so lil-gui and stats.js stay out of the
 // production bundle entirely rather than shipping dead weight to every visitor.
@@ -24,7 +25,7 @@ const debugModule = DEBUG ? await import('./debug.js') : null;
 debugModule?.applyDensityOverrides(density);
 
 const { renderer, scene, camera } = createWorld();
-const pigment = new PigmentSim(renderer);
+const paint = new PaintMap(renderer);
 const post = createComposer(renderer, scene, camera);
 
 const ground = createGround();
@@ -66,22 +67,31 @@ const hint = document.getElementById('hint');
 const ambience = new Ambience(camera);
 ambience.load().catch((e) => console.warn('[audio] could not load the ambient bed:', e.message));
 
-// Pigment falls from the moth, so a drop lands beneath it, slightly ahead along the
-// heading the way anything released from a moving body would. Aiming down a crosshair
-// was the first attempt and it was unusable: the chase camera looks near-horizontal, so
-// the ray met the ground about 200 units away, well outside the frame.
+// Paint is thrown, not teleported: a droplet is released from the moth with its own
+// velocity, falls under gravity, and only stamps a splat when it actually lands. The
+// splat is thrown downrange along the impact direction, so it reads as a hit.
 const dropColor = new THREE.Color();
-function dropPoint() {
-  const p = flight.state.pos;
-  const lead = Math.min(18, flight.state.speed * 0.9);
-  return {
-    x: p.x - Math.sin(flight.state.yaw) * lead,
-    z: p.z - Math.cos(flight.state.yaw) * lead,
-  };
-}
+const impactDir = new THREE.Vector2();
+
+const droplets = new Droplets(scene, (x, y, z, color, vel) => {
+  impactDir.set(vel.x, vel.z);
+  if (impactDir.lengthSq() < 1e-4) impactDir.set(1, 0);
+  // Faster impacts throw wider splats.
+  const scale = 0.75 + Math.min(1.4, vel.length() / 42);
+  paint.splat(x, z, color, impactDir, scale);
+});
+
+const releaseVel = new THREE.Vector3();
+const releasePos = new THREE.Vector3();
 function dropPigment() {
-  const { x, z } = dropPoint();
-  pigment.drop(x, z, samplePigment(Math.random, dropColor));
+  const st = flight.state;
+  releasePos.copy(st.pos).y -= 1.2;
+  releaseVel.set(
+    -Math.sin(st.yaw) * (st.speed + dropCfg.throwSpeed),
+    -2,
+    -Math.cos(st.yaw) * (st.speed + dropCfg.throwSpeed),
+  );
+  droplets.spawn(releasePos, releaseVel, samplePigment(Math.random, dropColor));
 }
 
 const flight = createFlight(camera, renderer.domElement, {
@@ -114,7 +124,7 @@ overlay.addEventListener('click', () => {
 const timer = new THREE.Timer();
 timer.connect(document); // pauses on tab switch, so returning does not dump one huge dt
 
-const debug = debugModule?.createDebug({ post, pigment, ambience }) ?? null;
+const debug = debugModule?.createDebug({ post, paint, ambience }) ?? null;
 
 let frameCount = 0;
 
@@ -126,13 +136,13 @@ function frame() {
   const elapsed = timer.getElapsed();
 
   flight.update(dt, elapsed);
-  if (!api.freeze) pigment.update(dt);
-  updateInkUniforms(pigment.wetTexture, pigment.dryTexture);
+  droplets.update(dt);
+  updateInkUniforms(paint.texture);
 
   // Async readback, so this never stalls the pipeline. A few frames of latency is
   // inaudible, and sampling every frame would be pointless at a 0.6s smoothing time.
-  if (++frameCount % 8 === 0) pigment.sampleWetness();
-  ambience.update(pigment.wetness);
+  if (++frameCount % 12 === 0) paint.sampleCoverage(flight.state.pos.x, flight.state.pos.z);
+  ambience.update(paint.coverage);
 
   post.render(dt);
   debug?.end();
@@ -141,8 +151,8 @@ function frame() {
 // Hooks for scripts/measure.mjs. `freeze` lets the harness wipe the ink and confirm
 // the world really does disappear, without the loop immediately re-inking underfoot.
 const api = {
-  renderer, scene, camera, pigment, colliders, post, ambience, moth, flight,
-  input: flight.input, heightAt, dropPigment, dropPoint, freeze: false,
+  renderer, scene, camera, paint, droplets, colliders, post, ambience, moth, flight,
+  input: flight.input, heightAt, dropPigment, freeze: false,
 };
 globalThis.__inkGarden = api;
 

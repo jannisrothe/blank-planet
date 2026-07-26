@@ -1,6 +1,6 @@
 import GUI from 'lil-gui';
 import Stats from 'stats.js';
-import { ink, post, density, audio } from './config.js';
+import { paint as paintCfg, post, density, audio } from './config.js';
 
 /**
  * Live tuning panel. Loaded only when the URL has ?debug, so the production bundle
@@ -9,7 +9,7 @@ import { ink, post, density, audio } from './config.js';
  * The point is that the final constants come from you moving sliders and looking at
  * the result, rather than from me picking numbers that seemed reasonable.
  */
-export function createDebug({ post: postFx, pigment, ambience }) {
+export function createDebug({ post: postFx, paint, ambience }) {
   const stats = new Stats();
   stats.showPanel(0);
   Object.assign(stats.dom.style, { left: 'auto', right: '0px', top: '0px' });
@@ -17,23 +17,18 @@ export function createDebug({ post: postFx, pigment, ambience }) {
 
   const gui = new GUI({ title: 'ink garden' });
 
-  const fDrop = gui.addFolder('drop');
-  fDrop.add(ink, 'dropRadius', 4, 60, 0.5).name('drop size (units)');
-  fDrop.add(ink, 'dropWater', 0.2, 1, 0.01).name('drop wetness');
-  fDrop.add(ink, 'drySeconds', 1, 40, 0.5).name('dry time (s)');
+  const fSplat = gui.addFolder('splat');
+  fSplat.add(paintCfg, 'radius', 1, 40, 0.5).name('splat size (units)');
+  fSplat.add(paintCfg, 'spikes', 0, 3, 0.02).name('spike length');
+  fSplat.add(paintCfg, 'satellites', 0, 3, 0.02).name('spatter spread');
+  fSplat.add(paintCfg, 'edgeSoftness', 0, 0.5, 0.005).name('edge softness');
+  fSplat.add(paintCfg, 'tooth', 0, 1, 0.01).name('canvas tooth');
 
-  const fBleed = gui.addFolder('bleed');
-  fBleed.add(ink, 'capillary', 0.9, 1.0, 0.001).name('capillary spread');
-  fBleed.add(ink, 'advection', 0, 6, 0.05).name('pigment drag');
-  fBleed.add(ink, 'granulation', 0, 1, 0.01).name('granulation');
-  fBleed.add(ink, 'edgeDarkening', 0, 3, 0.02).name('edge darkening');
-  fBleed.add(ink, 'paperScale', 40, 500, 5).name('paper grain scale');
-
-  const fWash = gui.addFolder('wash');
-  fWash.add(ink, 'coverGamma', 0.3, 2, 0.01).name('coverage gamma');
-  fWash.add(ink, 'shadeFloor', 0, 1, 0.01).name('shading floor');
-  fWash.add(ink, 'shadeRange', 0, 2, 0.01).name('shading range');
-  fWash.add(ink, 'chroma', 1, 2.5, 0.01).name('chroma boost');
+  const fWash = gui.addFolder('paint');
+  fWash.add(paintCfg, 'coverGamma', 0.3, 2, 0.01).name('coverage gamma');
+  fWash.add(paintCfg, 'shadeFloor', 0, 1, 0.01).name('shading floor');
+  fWash.add(paintCfg, 'shadeRange', 0, 2, 0.01).name('shading range');
+  fWash.add(paintCfg, 'chroma', 1, 2.5, 0.01).name('chroma boost');
 
   const fPaper = gui.addFolder('paper');
   fPaper.add(postFx.watercolor, 'radius', 0, 8, 1).name('kuwahara radius');
@@ -67,14 +62,16 @@ export function createDebug({ post: postFx, pigment, ambience }) {
   }
   fDensity.close();
 
-  const readout = { wetness: 0 };
-  gui.add(readout, 'wetness').listen().disable().name('wetness (audio input)');
+  const readout = { coverage: 0, splats: 0 };
+  gui.add(readout, 'coverage').listen().disable().name('coverage (audio input)');
+  gui.add(readout, 'splats').listen().disable().name('splats landed');
 
   return {
     begin: () => stats.begin(),
     end: () => {
       stats.end();
-      readout.wetness = Number(pigment.wetness.toFixed(3));
+      readout.coverage = Number(paint.coverage.toFixed(3));
+      readout.splats = paint.splats;
     },
   };
 }

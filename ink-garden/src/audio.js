@@ -4,8 +4,8 @@ import { audio as cfg } from './config.js';
 /**
  * The ambient bed, mixed by the ink rather than just played underneath it.
  *
- * Gain and a lowpass both follow how wet the paper is around the player: on blank
- * paper the piano is distant and muffled, and it opens up as colour floods in. That
+ * Gain and a lowpass both follow how much paint is on the ground around you: over blank
+ * canvas the piano is distant and muffled, and it opens up over a painted stretch. That
  * makes the sound part of the mechanic instead of wallpaper.
  *
  * Looped through an AudioBufferSourceNode rather than an <audio loop> tag, because the
@@ -62,12 +62,12 @@ export class Ambience {
     g.setTargetAtTime(target, this.listener.context.currentTime, cfg.smoothing);
   }
 
-  /** @param {number} wetness 0..1 from InkMap */
-  update(wetness) {
+  /** @param {number} coverage 0..1 of painted ground around the player */
+  update(coverage) {
     if (!this.ready || !this.wanted) return;
-    // Map the measured wetness band onto 0..1. See config for where those came from.
-    const span = cfg.wetnessWet - cfg.wetnessDry;
-    const x = Math.max(0, Math.min(1, (wetness - cfg.wetnessDry) / span));
+    // Map the measured coverage band onto 0..1. See config for where those came from.
+    const span = cfg.coverageWet - cfg.coverageDry;
+    const x = Math.max(0, Math.min(1, (coverage - cfg.coverageDry) / span));
     const t = x * x * (3 - 2 * x); // smoothstep, so the ends ease instead of clipping
     const gain = this.muted ? 0 : cfg.gainDry + (cfg.gainWet - cfg.gainDry) * t;
     // Cutoff moves geometrically, because pitch perception is logarithmic.

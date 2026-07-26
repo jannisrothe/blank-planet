@@ -1,8 +1,9 @@
 # Ink Garden
 
-A blank sheet of paper with an alien planet hidden in it. You drift over it as a moth and
-click to drop pigment; each drop blooms outward with real capillary bleed, dries, and
-stays. What you paint is permanent, so a session accumulates into something you made.
+A blank canvas with an alien planet hidden in it. You drift over it as a moth and throw
+blobs of wet oil paint; each one falls, hits the ground, and bursts into a hard-edged
+splat with spikes and spatter. Paint covers whatever was under it and never dries away,
+so a session accumulates into something you made.
 
 Static site, no backend.
 
@@ -13,16 +14,19 @@ npm run dev -- --open
 npm run build          # -> dist/, deploy anywhere static
 ```
 
+Controls: mouse steers, **click throws paint**, W and S change speed, M mutes, esc to
+leave. You always drift forward; there is no stall and no way to get stuck.
+
 ## Tuning it yourself
 
 ```
 http://localhost:5173/?debug
 ```
 
-Sliders for reveal radius, dry time, bleed, the pigment ramps, the Kuwahara radius,
-paper grain, and the audio mix, plus an FPS meter and a live wetness readout. Density
-sliders reload the page with the new counts in the query string, because the instanced
-meshes are built once at startup.
+Sliders for splat size, spike length, spatter spread, edge softness, canvas tooth, the
+Kuwahara radius and the audio mix, plus an FPS meter and live coverage and splat counts.
+Density sliders reload the page with the new counts in the query string, because the
+instanced meshes are built once at startup.
 
 Everything you settle on lives in `src/config.js`, in the same names the sliders use.
 
@@ -33,42 +37,52 @@ split into a separate chunk and never reach a normal visitor.
 
 ```bash
 npm run build
-npm run measure                  # gates: collision, audio, blank paper, draw calls
-npm run measure -- --uncapped    # true frame cost with vsync off
-npm run measure -- --baseline    # the original prototype, for comparison
-npm run measure -- --shot out.png
+npm run measure                    # all gates
+npm run measure -- --shot out.png  # paints, climbs, then shoots
+npm run measure -- --baseline      # the original single-file prototype
 ```
 
 The harness drives real system Chrome, headed, on the actual GPU. Headless Chrome
 renders WebGL through SwiftShader in software, so its numbers would be meaningless.
 
-Two things worth knowing if you extend it:
+Three things worth knowing if you extend it:
 
-- **Capped runs tell you almost nothing.** They pin to 16.67 ms whatever you do. Use
-  `--uncapped` for anything about headroom.
 - **It does not use pointer lock.** Chrome revokes the lock within seconds under
   automation even with zero input, which silently made every gate pass while the player
   stood still. The harness drives `__inkGarden.input` directly instead.
+- **`--uncapped` no longer measures frame cost.** The GPU work is heavy enough that the
+  JS loop runs ahead of it, so rAF deltas become JS time and it reports 10,000 fps. The
+  harness warns when it detects this. Trust the capped run.
+- **Gates must assert behaviour, not absence of crashes.** Several bugs here passed a
+  green run before the gate was sharpened. See `docs/results.md`.
 
-## How the reveal works
+## How the paint works
 
-One 512×512 render target holds a top-down mask of where ink currently sits
-(`src/ink/inkMap.js`). Each frame a single fragment pass blurs the previous state
-(diffusion, so the blot creeps outward as it dries), multiplies it by an exponential
-decay, and maxes in a fresh blot under the player whose edge is warped by noise.
+`src/ink/paintMap.js` holds a single 2048×2048 RGBA texture covering the whole world,
+0.31 world units per texel. There is no per-frame simulation: oil does not flow, so a
+splat is stamped once on impact with ordinary alpha blending and never moves again. That
+is cheaper than the watercolour fluid sim it replaced, which is what pays for a world
+eight times larger.
 
-Every material is then patched through `onBeforeCompile` (`src/ink/inkMaterial.js`) to
-sample that mask by world XZ and mix its fragment toward paper white. At ink 0 a
-fragment is pure white, so the world is genuinely invisible rather than muted gray, and
-because it is per fragment the blot boundary can cut straight through a tree trunk.
+A click releases a droplet from the moth (`src/props/droplets.js`) carrying the moth's
+own velocity. It falls under gravity, visible the whole way down, and only stamps when it
+lands. The splat shape is a distance field: an irregular core, nine radial fingers and
+fourteen satellite droplets, all biased downrange of the impact direction so the spatter
+reads as a hit. Edges are near-step, because oil does not feather.
 
-Colour arrives in two stages: the shape first emerges as a desaturated wash, then
-pigment floods in behind it. A wet edge carries extra pigment and sits darker at the
-boundary, the way a real wash dries.
+Blending is source-over with **explicit** `blendSrcAlpha` / `blendDstAlpha`, so fresh
+paint covers what was underneath rather than averaging with it. Cyan over magenta reads
+as cyan. Leave those factors at their defaults and the target's own alpha never
+accumulates, so coverage silently stays at zero.
 
-`src/post/WatercolorEffect.js` adds the painterly layer on top: a four-quadrant
-Kuwahara filter, an ink outline from the luminance gradient, screen-locked paper grain,
-and a vignette that falls off to white.
+Every material is patched through `onBeforeCompile` (`src/ink/inkMaterial.js`) to sample
+that map by world XZ. Where there is no paint the fragment is pure white, so the planet
+is genuinely invisible until you hit it. Where there is, the object's own shading
+*modulates* the paint rather than tinting it, so a growth still reads as a growth.
+
+`src/post/WatercolorEffect.js` adds the painterly layer: a four-quadrant Kuwahara
+filter, an outline from the luminance gradient, screen-locked canvas grain, and a
+vignette that falls off to white.
 
 ## Layout
 
@@ -78,15 +92,12 @@ src/
   world.js         renderer, scene, camera, lights
   terrain.js       heightfield + ground; the only heightAt()
   scatter.js       seeded placement on a jittered grid
-  palette.js       watercolour hue families
-  collision.js     spatial hash + circle push-out
-  audio.js         ambient bed, mixed by the ink
-  debug.js         lil-gui + stats, loaded only with ?debug
+  palette.js       object hue families + the thrown-paint palette
   flight.js        constant-drift flight, chase camera
-  ink/             pigmentSim.js, inkMaterial.js
+  collision.js     spatial hash + circle push-out, height aware
+  audio.js         ambient bed, mixed by how much ground you have painted
+  debug.js         lil-gui + stats, loaded only with ?debug
+  ink/             paintMap.js, inkMaterial.js
   post/            composer.js, WatercolorEffect.js
-  props/           flowers, grass, trees, smallProps, cards, moth, features
+  props/           flowers, grass, trees, smallProps, cards, moth, features, droplets
 ```
-
-Controls: mouse steers, **click drops pigment**, W and S change speed, M mutes, esc to
-leave. You always drift forward; there is no stall and no way to get stuck.

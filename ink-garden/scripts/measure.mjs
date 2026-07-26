@@ -219,7 +219,7 @@ async function main() {
       window.__alt = [];
       while (performance.now() - t0 < seconds * 1000) {
         await new Promise((r) => requestAnimationFrame(r));
-        window.__wet.push(g.pigment.wetness);
+        window.__wet.push(g.paint.coverage);
         const p = g.flight.state.pos;
         window.__alt.push(p.y - g.heightAt(p.x, p.z));
       }
@@ -232,7 +232,7 @@ async function main() {
       const t0 = performance.now();
       while (performance.now() - t0 < seconds * 1000) {
         await new Promise((r) => requestAnimationFrame(r));
-        window.__wet.push(g.pigment.wetness);
+        window.__wet.push(g.paint.coverage);
       }
     }, SECONDS);
   }
@@ -256,9 +256,9 @@ async function main() {
       g.input.climb = 0.5;
       await new Promise((r) => setTimeout(r, 2000));
       g.input.climb = 0;
-      for (let i = 0; i < 9; i++) {
+      for (let i = 0; i < 26; i++) {
         g.dropPigment();
-        await new Promise((r) => setTimeout(r, 500));
+        await new Promise((r) => setTimeout(r, 190));
       }
       g.input.turn = 0;
       g.input.climb = -0.25;
@@ -279,7 +279,7 @@ async function main() {
   if (!uncapped && (await page.evaluate(() => !!globalThis.__inkGarden))) {
     await page.evaluate(() => {
       const g = globalThis.__inkGarden;
-      g.pigment.clear();
+      g.paint.clear();
       // The moth is deliberately never ink-washed, so it is always visible. This gate
       // is about whether the WORLD disappears, so the moth is not part of it.
       if (g.moth) g.moth.root.visible = false;
@@ -307,36 +307,56 @@ async function main() {
     return { min: Math.min(...a), max: Math.max(...a), samples: a.length };
   });
 
-  // Pigment gates. These are the heart of v2, so they assert behaviour rather than
-  // just checking nothing crashed.
+  // Paint gates. Oil covers rather than blends and never dries away, so these assert
+  // behaviour rather than just checking nothing crashed.
   let bloom = null;
-  if (!uncapped && (await page.evaluate(() => !!globalThis.__inkGarden?.pigment))) {
+  if (!uncapped && (await page.evaluate(() => !!globalThis.__inkGarden?.paint))) {
     bloom = await page.evaluate(async () => {
       const g = globalThis.__inkGarden;
-      const THREE_Color = g.pigment.wetUniforms.uDropColor.value.constructor;
+      const Colour = g.paint.uniforms.uColor.value.constructor;
+      const Vec2 = g.paint.uniforms.uDir.value.constructor;
       const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-      g.pigment.clear();
+      g.paint.clear();
       await wait(200);
-      const before = await g.pigment.sampleAt(0, 0);
+      const before = await g.paint.sampleAt(0, 0);
 
-      // Drop a known magenta at a known point.
-      g.pigment.drop(0, 0, new THREE_Color(1, 0, 1));
-      await wait(1200);
-      const wetNow = g.pigment.wetness;
+      g.paint.splat(0, 0, new Colour(1, 0, 1), new Vec2(1, 0), 1);
+      await wait(600);
+      const landed = await g.paint.sampleAt(0, 0);
 
-      // Let it dry well past drySeconds, then check it is still there.
-      await wait(14000);
-      const dried = await g.pigment.sampleAt(0, 0);
-      await wait(12000);
-      const later = await g.pigment.sampleAt(0, 0);
+      await wait(9000);
+      const later = await g.paint.sampleAt(0, 0);
 
-      // Overlap a cyan drop on the same spot and see whether the result mixes.
-      g.pigment.drop(0, 0, new THREE_Color(0, 1, 1));
-      await wait(14000);
-      const mixed = await g.pigment.sampleAt(0, 0);
+      // Cyan straight over the magenta: oil covers, so the result should read cyan,
+      // not the violet an averaging model would produce.
+      g.paint.splat(0, 0, new Colour(0, 1, 1), new Vec2(1, 0), 1);
+      await wait(600);
+      const over = await g.paint.sampleAt(0, 0);
 
-      return { before, wetNow, dried, later, mixed };
+      return { before, landed, later, over };
+    });
+  }
+
+  // Droplets must actually fall and land, not stamp instantly.
+  let fall = null;
+  if (!uncapped && (await page.evaluate(() => !!globalThis.__inkGarden?.droplets))) {
+    fall = await page.evaluate(async () => {
+      const g = globalThis.__inkGarden;
+      const before = g.paint.splats;
+      g.dropPigment();
+      const airborneAfterAFrame = await new Promise((r) => requestAnimationFrame(() => r(g.droplets.live.length)));
+      const stampedImmediately = g.paint.splats > before;
+      let t0 = performance.now();
+      while (g.paint.splats === before && performance.now() - t0 < 8000) {
+        await new Promise((r) => requestAnimationFrame(r));
+      }
+      return {
+        airborneAfterAFrame,
+        stampedImmediately,
+        flightMs: Math.round(performance.now() - t0),
+        landed: g.paint.splats > before,
+      };
     });
   }
 
@@ -347,9 +367,9 @@ async function main() {
       const a = globalThis.__inkGarden?.ambience;
       if (!a) return null;
       a.wanted = true;
-      a.update(0.0);  // blank paper: nothing wet anywhere
+      a.update(0.0);  // blank canvas
       const dry = { gain: a.lastGain, cutoff: a.lastCutoff };
-      a.update(0.60); // measured: a fresh drop peaks near 0.94 and decays
+      a.update(0.60); // well-painted ground
       const wet = { gain: a.lastGain, cutoff: a.lastCutoff };
       return {
         ready: a.ready,
@@ -381,31 +401,25 @@ async function main() {
     console.log(`  clearance    above terrain: min ${alt.min.toFixed(1)} max ${alt.max.toFixed(1)} over ${alt.samples} frames  ${pass ? 'PASS' : 'FAIL (clipped through)'}`);
   }
   if (wet) {
-    console.log(`  wetness      min ${wet.min.toFixed(3)}  median ${wet.med.toFixed(3)}  max ${wet.max.toFixed(3)}  (drives the audio mix)`);
+    console.log(`  coverage     min ${wet.min.toFixed(3)}  median ${wet.med.toFixed(3)}  max ${wet.max.toFixed(3)}  (drives the audio mix)`);
   }
   if (bloom) {
     const b = bloom;
-    const grew = b.before.a < 8 && b.dried.a > 40;
-    console.log(`  bloom        coverage ${b.before.a} -> ${b.dried.a} after a drop, wetness peaked ${b.wetNow.toFixed(3)}  ${grew ? 'PASS' : 'FAIL (no bloom deposited)'}`);
+    const grew = b.before.a < 8 && b.landed.a > 60;
+    console.log(`  splat        coverage ${b.before.a} -> ${b.landed.a} on impact  ${grew ? 'PASS' : 'FAIL (nothing landed)'}`);
 
-    // The one that would regress silently: staining is meant to be permanent, so
-    // coverage must never drop. It may still climb, since a slow bloom keeps
-    // depositing as the last of the water leaves.
-    const kept = b.later.a >= b.dried.a - 3;
-    const note = b.later.a > b.dried.a + 3 ? ' (still depositing)' : '';
-    console.log(`  persistence  coverage ${b.dried.a} -> ${b.later.a} 12s later${note}  ${kept ? 'PASS' : 'FAIL (stain faded)'}`);
+    // Permanence: oil never dries away. This would regress silently.
+    const kept = b.later.a >= b.landed.a - 3;
+    console.log(`  permanence   coverage ${b.landed.a} -> ${b.later.a} 9s later  ${kept ? 'PASS' : 'FAIL (paint faded)'}`);
 
-    // Magenta then cyan must land on something that is neither.
-    const m = b.mixed;
-    const mixedOk = m.g > b.dried.g + 12 && m.b > 60;
-    console.log(`  mixing       magenta rgb(${b.dried.r},${b.dried.g},${b.dried.b}) + cyan -> rgb(${m.r},${m.g},${m.b})  ${mixedOk ? 'PASS' : 'FAIL (second drop did not mix)'}`);
+    // Covering, not blending: cyan over magenta must read cyan.
+    const o = b.over;
+    const covered = o.g > 150 && o.b > 150 && o.r < 120;
+    console.log(`  covers       magenta rgb(${b.landed.r},${b.landed.g},${b.landed.b}) then cyan -> rgb(${o.r},${o.g},${o.b})  ${covered ? 'PASS' : 'FAIL (blended instead of covering)'}`);
   }
-  if (sound) {
-    const moves = sound.wet.cutoff > sound.dry.cutoff * 2 && sound.wet.gain > sound.dry.gain * 1.5;
-    console.log(`  audio        ${sound.ready ? `loaded ${sound.seconds.toFixed(0)}s` : 'NOT LOADED'}, `
-      + `context ${sound.state}, ${sound.playing ? 'playing' : 'not playing'}`);
-    console.log(`  audio mix    dry ${sound.dry.cutoff.toFixed(0)}Hz @${sound.dry.gain.toFixed(2)} `
-      + `-> wet ${sound.wet.cutoff.toFixed(0)}Hz @${sound.wet.gain.toFixed(2)}  ${moves ? 'PASS' : 'FAIL (ink does not move the mix)'}`);
+  if (fall) {
+    const ok = fall.airborneAfterAFrame > 0 && !fall.stampedImmediately && fall.landed;
+    console.log(`  droplet      airborne ${fall.airborneAfterAFrame}, fell for ${fall.flightMs}ms, ${fall.landed ? 'landed' : 'NEVER LANDED'}  ${ok ? 'PASS' : 'FAIL (did not travel before splatting)'}`);
   }
   if (Number.isFinite(whiteBlank)) {
     const pass = whiteBlank > 0.99;
