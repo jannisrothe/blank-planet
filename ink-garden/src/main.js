@@ -14,6 +14,12 @@ import { createComposer } from './post/composer.js';
 import { Ambience } from './audio.js';
 import { density } from './config.js';
 
+// Debug tooling is opt-in via ?debug, so lil-gui and stats.js stay out of the
+// production bundle entirely rather than shipping dead weight to every visitor.
+const DEBUG = new URLSearchParams(location.search).has('debug');
+const debugModule = DEBUG ? await import('./debug.js') : null;
+debugModule?.applyDensityOverrides(density);
+
 const { renderer, scene, camera } = createWorld();
 const inkMap = new InkMap(renderer);
 const post = createComposer(renderer, scene, camera);
@@ -69,8 +75,13 @@ overlay.addEventListener('click', () => controls.lock());
 const timer = new THREE.Timer();
 timer.connect(document); // pauses on tab switch, so returning does not dump one huge dt
 
+const debug = debugModule?.createDebug({ post, inkMap, ambience }) ?? null;
+
+let frameCount = 0;
+
 function frame() {
   requestAnimationFrame(frame);
+  debug?.begin();
   timer.update();
   const dt = Math.min(timer.getDelta(), 0.05);
 
@@ -84,8 +95,8 @@ function frame() {
   ambience.update(inkMap.wetness);
 
   post.render(dt);
+  debug?.end();
 }
-let frameCount = 0;
 
 // Hooks for scripts/measure.mjs. `freeze` lets the harness wipe the ink and confirm
 // the world really does disappear, without the loop immediately re-inking underfoot.

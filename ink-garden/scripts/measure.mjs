@@ -240,6 +240,17 @@ async function main() {
   });
   const whiteWalk = await whiteness(page, uncapped);
 
+  // Shot goes here, right after the walk: later steps unlock the pointer, which
+  // brings the entry overlay back and washes the whole frame out.
+  const shot = value('shot', null);
+  if (shot && !uncapped) {
+    await page.evaluate(() => {
+      document.getElementById('overlay')?.classList.add('hidden');
+      document.getElementById('hint')?.classList.add('hidden');
+    });
+    await page.screenshot({ path: shot });
+  }
+
   // The core promise: with no ink on the paper you cannot see the world at all.
   // Wiping the mask and looking at the same view is a direct test of that.
   let whiteBlank = NaN;
@@ -248,6 +259,14 @@ async function main() {
       const g = globalThis.__inkGarden;
       g.freeze = true;      // stop the loop re-inking under the player
       g.inkMap.clear();
+      // The debug panel and FPS meter are DOM, not world. Counting their pixels
+      // would fail this gate for a reason that has nothing to do with the render.
+      document.getElementById('overlay')?.classList.add('hidden');
+      document.getElementById('hint')?.classList.add('hidden');
+      for (const el of document.querySelectorAll('.lil-gui, .stats, #stats')) el.style.display = 'none';
+      for (const el of document.querySelectorAll('body > div')) {
+        if (el.style.position === 'fixed' && el.querySelector('canvas')) el.style.display = 'none';
+      }
     });
     await page.waitForTimeout(400);
     whiteBlank = await whiteness(page, false);
@@ -306,8 +325,7 @@ async function main() {
     });
   }
 
-  const shot = value('shot', null);
-  if (shot && !uncapped) await page.screenshot({ path: shot });
+
 
   console.log(`  frame time   p50 ${ms(r.p50)}   p95 ${ms(r.p95)}   p99 ${ms(r.p99)}   worst ${ms(r.worst)}`);
   console.log(`  fps          p50 ${fps(r.p50)}   p95 ${fps(r.p95)}`);
