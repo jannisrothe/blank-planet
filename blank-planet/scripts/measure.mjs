@@ -288,7 +288,7 @@ async function main() {
     });
     await page.evaluate(() => {
       const g = globalThis.__blankPlanet;
-      g.paint.clear();
+      (g.clearPigment ?? (() => g.paint.clear()))();
       // The moth is deliberately never ink-washed, so it is always visible. This gate
       // is about whether the WORLD disappears, so the moth is not part of it.
       if (g.moth) g.moth.root.visible = false;
@@ -349,7 +349,7 @@ async function main() {
       const Vec2 = g.paint.uniforms.uDir.value.constructor;
       const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-      g.paint.clear();
+      (g.clearPigment ?? (() => g.paint.clear()))();
       await wait(200);
       const before = await g.paint.sampleAt(0, 0);
 
@@ -394,6 +394,43 @@ async function main() {
         stampedImmediately,
         flightMs: Math.round(performance.now() - t0),
         landed: g.paint.splats > before,
+      };
+    });
+  }
+
+  // Things in the air must be hittable, and must NOT be painted by the ground under them.
+  // The second half is the one that matters: the world paint map is indexed by XZ alone,
+  // so before this they took the colour of whatever was splattered anywhere below them.
+  let air = null;
+  if (!uncapped && (await page.evaluate(() => !!globalThis.__blankPlanet?.hittables))) {
+    air = await page.evaluate(async () => {
+      const g = globalThis.__blankPlanet;
+      while (g.droplets.live.length) await new Promise((r) => requestAnimationFrame(r));
+
+      // The walk above has been painting the ground for twelve seconds. If a ground
+      // splat can reach the sky, something up there is carrying paint by now.
+      const bledFromGround = g.hittables.paintedCount;
+
+      // Now aim one at the biggest target there is and check it stops on it.
+      const targets = g.hittables.groups.flatMap((group) => group.items);
+      const t = targets.reduce((a, b) => (b.hitRadius > a.hitRadius ? b : a));
+      const pos = g.flight.state.pos.clone().set(t.x, t.y + t.hitRadius + 30, t.z);
+      const vel = g.flight.state.pos.clone().set(0, -40, 0);
+      const color = new g.scene.background.constructor(0x00ff00);
+      const liveBefore = g.droplets.live.length;
+      g.droplets.spawn(pos, vel, color);
+      const spawned = g.droplets.live.length > liveBefore;
+
+      const t0 = performance.now();
+      while (g.hittables.paintedCount === 0 && performance.now() - t0 < 6000) {
+        await new Promise((r) => requestAnimationFrame(r));
+      }
+      return {
+        bledFromGround,
+        spawned,
+        painted: g.hittables.paintedCount,
+        stillFalling: g.droplets.live.length,
+        targetRadius: Math.round(t.hitRadius),
       };
     });
   }
@@ -458,6 +495,12 @@ async function main() {
   if (fall) {
     const ok = fall.airborneAfterAFrame > 0 && !fall.stampedImmediately && fall.landed;
     console.log(`  droplet      airborne ${fall.airborneAfterAFrame}, fell for ${fall.flightMs}ms, ${fall.landed ? 'landed' : 'NEVER LANDED'}  ${ok ? 'PASS' : 'FAIL (did not travel before splatting)'}`);
+  }
+  if (air) {
+    const noBleed = air.bledFromGround === 0;
+    const hit = air.spawned && air.painted > 0;
+    console.log(`  air: no bleed ${air.bledFromGround} airborne instances painted by ground splats  ${noBleed ? 'PASS' : 'FAIL (the XZ map is reaching the sky)'}`);
+    console.log(`  air: hittable drop aimed at r=${air.targetRadius} target painted ${air.painted}, ${air.stillFalling} still falling  ${hit ? 'PASS' : 'FAIL (drop passed through it)'}`);
   }
   if (Number.isFinite(whiteBlank)) {
     const pass = whiteBlank > 0.99;

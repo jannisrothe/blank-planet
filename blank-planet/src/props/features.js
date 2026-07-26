@@ -15,8 +15,8 @@ import { flight } from '../config.js';
 
 // Smooth shading throughout. Faceted primitives and flatShading are the two things that
 // make a low-poly world read as hard-edged, and this one is meant to be all curves.
-function inkMaterial(opts = {}) {
-  return applyInk(new THREE.MeshLambertMaterial({ toneMapped: false, ...opts }));
+function inkMaterial(opts = {}, inkOpts) {
+  return applyInk(new THREE.MeshLambertMaterial({ toneMapped: false, ...opts }), inkOpts);
 }
 
 /**
@@ -66,6 +66,11 @@ function islandGeometry() {
   return merge([top, keel, ...strands]);
 }
 
+/**
+ * Islands are in the air, so they carry their own colour rather than reading the world
+ * paint map, which would tint them from whatever was splattered on the ground below.
+ * Returns the items too, so droplets can be tested against them.
+ */
 export function createIslands(count, rand) {
   // Wide keep-out around the spawn point: islands are now up to 46 units across and the
   // entry overlay is not fully opaque, so one parked overhead greys out the first screen.
@@ -85,9 +90,15 @@ export function createIslands(count, rand) {
       sx: k, sy: k * (0.7 + rand() * 0.7), sz: k,
       ry: rand() * Math.PI * 2,
       rz: (rand() - 0.5) * 0.25,
+      // The geometry is 2 units across at scale 1, so the disc radius is k. The strands
+      // hang below it and are deliberately not part of the target.
+      hitRadius: k,
     };
   });
-  return build(islandGeometry(), inkMaterial(), items);
+  return {
+    mesh: build(islandGeometry(), inkMaterial({}, { perInstance: true }), items),
+    items,
+  };
 }
 
 /**

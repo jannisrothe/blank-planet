@@ -52,6 +52,25 @@ Every run asserts these, and they fail loudly rather than silently:
 | Draw calls | 33 | 40 |
 | fps p50 / p95, vsync on | 59.9 / 56.8 | **30.0 / 29.7** |
 
+### Airborne paint, and where the frame rate went
+
+Taking islands, grazers and spores off the world paint map put p50 back to **59.9 fps**
+from 30.0, with the same object count and the same draw calls. That settles what the
+fill-rate cost actually was: a `texture2D` fetch per fragment on large screen-covering
+surfaces. Islands are the biggest of those, and they were sampling a 2048² map to find
+out they were white.
+
+Two gates now assert the behaviour, because "the page is white" would also be true if
+those objects had simply stopped rendering:
+
+| Gate | Result |
+|---|---|
+| No bleed | 0 airborne instances painted after 12 s of ground splatting |
+| Hittable | a drop aimed at a radius-50 island painted 1 instance, 0 still falling |
+
+`blank paper` reads 100.00% on repeat runs; one run in four or so returns 99.26% because
+the harness's flight path leaves a droplet mid-air at the instant of capture.
+
 Altitude went to 300 first and came back to 200. At 300 a radius-18 splat covered a few
 pixels and painting read as speckle; the round trip is why the island and grazer altitude
 bands are now written as fractions of `flight.spawnAltitude` rather than as the literal
@@ -100,7 +119,12 @@ Each of these looked fine until something was measured or rendered side by side.
    flew tail-first with its antennae trailing. Not visible in any gate. Only a screenshot
    of the moth on its own showed it, and the harness's shot always frames it from behind
    and too small to read.
-11. **The entry screen rendered from the world origin.** `flight.update()` returns early
+11. **The world paint map has no height, and nothing but terrain was ever tested for
+   impact.** One texture indexed by world XZ, so a splat on the ground coloured the whole
+   column above it, and a drop aimed at a creature passed through. Both halves of the same
+   omission, and neither showed up in any gate: everything was still white before you
+   painted and coloured after, which is all the gates were asking.
+12. **The entry screen rendered from the world origin.** `flight.update()` returns early
    until the player enters, so it never placed the camera, and the first thing you saw was
    the view from inside the ground. It went unnoticed while the world was small; at a
    300-unit spawn the two views have nothing in common.

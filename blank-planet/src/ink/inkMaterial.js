@@ -29,14 +29,11 @@ const VERTEX_INJECT = /* glsl */`
 }
 `;
 
-const FRAGMENT_INJECT = /* glsl */`
-{
-  vec2 inkUv = vInkWorld.xz / uInkWorldSize + 0.5;
-  vec4 paintTex = texture2D(uPaintMap, inkUv);
-
-  vec3 pigment = paintTex.rgb;
-  float cover = pow(clamp(paintTex.a, 0.0, 1.0), uCoverGamma);
-
+/**
+ * Shared tail. Takes a pigment colour and a coverage and lays it over the paper, however
+ * the two were arrived at.
+ */
+const SHADE = /* glsl */`
   // The form's own shading modulates the pigment rather than tinting it, so shapes
   // still read through a flat wash.
   // Re-saturate. Successive drops average together, and averaging two hues always
@@ -49,14 +46,46 @@ const FRAGMENT_INJECT = /* glsl */`
   vec3 painted = pigment * (uShade.x + uShade.y * lum);
 
   gl_FragColor.rgb = mix(uPaper, painted, cover);
+`;
+
+const FRAGMENT_INJECT = /* glsl */`
+{
+  vec2 inkUv = vInkWorld.xz / uInkWorldSize + 0.5;
+  vec4 paintTex = texture2D(uPaintMap, inkUv);
+
+  vec3 pigment = paintTex.rgb;
+  float cover = pow(clamp(paintTex.a, 0.0, 1.0), uCoverGamma);
+${SHADE}
+}
+`;
+
+/**
+ * The airborne variant. The paint map is a single texture indexed by world XZ, so it has
+ * no idea about height: one splat on the ground would colour the island 200 units above
+ * it and every creature drifting through that column. Things in the air therefore carry
+ * their own colour per instance, written when a drop actually hits them.
+ */
+const VERTEX_INJECT_INSTANCE = /* glsl */`
+#include <project_vertex>
+vInkPaint = instancePaint;
+`;
+
+const FRAGMENT_INJECT_INSTANCE = /* glsl */`
+{
+  vec3 pigment = vInkPaint.rgb;
+  float cover = pow(clamp(vInkPaint.a, 0.0, 1.0), uCoverGamma);
+${SHADE}
 }
 `;
 
 /**
  * @param {THREE.Material} material
+ * @param {{perInstance?: boolean}} [opts] `perInstance` reads an `instancePaint` vec4
+ *   attribute instead of the world paint map. For things in the air, which the XZ map
+ *   cannot describe. The geometry must carry that attribute.
  * @returns {THREE.Material} the same material, patched in place
  */
-export function applyInk(material) {
+export function applyInk(material, { perInstance = false } = {}) {
   const previous = material.onBeforeCompile?.bind(material);
 
   material.onBeforeCompile = (shader, renderer) => {
@@ -74,8 +103,13 @@ export function applyInk(material) {
       return;
     }
     shader.vertexShader = shader.vertexShader
-      .replace('void main() {', 'varying vec3 vInkWorld;\nvoid main() {')
-      .replace(VERTEX_HOOK, VERTEX_INJECT);
+      .replace(
+        'void main() {',
+        perInstance
+          ? 'attribute vec4 instancePaint;\nvarying vec4 vInkPaint;\nvoid main() {'
+          : 'varying vec3 vInkWorld;\nvoid main() {',
+      )
+      .replace(VERTEX_HOOK, perInstance ? VERTEX_INJECT_INSTANCE : VERTEX_INJECT);
 
     const hook = FRAGMENT_HOOKS.find((h) => shader.fragmentShader.includes(h));
     if (!hook) {
@@ -85,19 +119,21 @@ export function applyInk(material) {
     shader.fragmentShader = shader.fragmentShader
       .replace(
         'void main() {',
-        'varying vec3 vInkWorld;\n'
-        + 'uniform sampler2D uPaintMap;\n'
-        + 'uniform float uInkWorldSize;\nuniform vec3 uPaper;\n'
+        (perInstance
+          ? 'varying vec4 vInkPaint;\n'
+          : 'varying vec3 vInkWorld;\nuniform sampler2D uPaintMap;\nuniform float uInkWorldSize;\n')
+        + 'uniform vec3 uPaper;\n'
         + 'uniform float uCoverGamma;\nuniform vec2 uShade;\nuniform float uChroma;\n'
         + 'void main() {',
       )
-      .replace(hook, hook + FRAGMENT_INJECT);
+      .replace(hook, hook + (perInstance ? FRAGMENT_INJECT_INSTANCE : FRAGMENT_INJECT));
 
     patched.add(shader);
   };
 
-  // Without this three can hand back a cached program compiled before the patch.
-  material.customProgramCacheKey = () => 'paint-v1';
+  // Without this three can hand back a cached program compiled before the patch, and the
+  // two modes compile to different shaders, so they must not share a key either.
+  material.customProgramCacheKey = () => (perInstance ? 'paint-instance-v1' : 'paint-v1');
   material.needsUpdate = true;
   return material;
 }

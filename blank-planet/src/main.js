@@ -15,6 +15,7 @@ import { createMoth } from './props/moth.js';
 import { Droplets } from './props/droplets.js';
 import { createIslands, createArches, createGrowths, createSpires } from './props/features.js';
 import { createLifeforms } from './props/lifeforms.js';
+import { Hittables } from './hittables.js';
 import { createComposer } from './post/composer.js';
 import { Ambience } from './audio.js';
 import { density, droplet as dropCfg } from './config.js';
@@ -42,6 +43,13 @@ const rocks = createRocks(density.rocks, rand);
 const growths = createGrowths(density.growths, rand);
 const spires = createSpires(density.spires, rand);
 const life = createLifeforms(density, rand);
+const islands = createIslands(density.islands, rand);
+
+// Everything in the air carries its own colour and is hit directly. The world paint map
+// is indexed by XZ alone, so left to itself it paints the whole column above a splat.
+const hittables = new Hittables();
+hittables.add(islands.mesh, islands.items);
+for (const layer of life.airborne) hittables.add(layer.mesh, layer.items);
 
 scene.add(
   ...life.meshes,
@@ -51,7 +59,7 @@ scene.add(
   createMushrooms(density.mushrooms, rand),
   createReeds(density.reeds, rand),
   rocks.mesh,
-  createIslands(density.islands, rand),
+  islands.mesh,
   createArches(density.arches, rand),
   growths.mesh,
   spires.mesh,
@@ -90,7 +98,7 @@ const droplets = new Droplets(scene, (x, y, z, color, vel) => {
   // Faster impacts throw wider splats.
   const scale = 0.75 + Math.min(1.4, vel.length() / 42);
   paint.splat(x, z, color, impactDir, scale);
-});
+}, hittables);
 
 const releaseVel = new THREE.Vector3();
 const releasePos = new THREE.Vector3();
@@ -165,7 +173,11 @@ function frame() {
 // the world really does disappear, without the loop immediately re-inking underfoot.
 const api = {
   renderer, scene, camera, paint, droplets, colliders, post, ambience, moth, flight,
+  hittables,
   input: flight.input, heightAt, dropPigment, freeze: false,
+  // Pigment now lives in two places. Anything asserting "the page is blank" has to wipe
+  // both, or it passes while a painted island is still sitting in frame.
+  clearPigment: () => { paint.clear(); hittables.clear(); },
 };
 globalThis.__blankPlanet = api;
 

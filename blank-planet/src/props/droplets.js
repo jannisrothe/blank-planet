@@ -13,10 +13,19 @@ import { heightAt } from '../terrain.js';
  * rapid-fire painting session.
  */
 export class Droplets {
-  constructor(scene, onImpact) {
+  /**
+   * @param {THREE.Scene} scene
+   * @param {(x:number, y:number, z:number, color:THREE.Color, vel:THREE.Vector3) => void} onImpact
+   *   ground impact, which stamps into the world paint map
+   * @param {import('../hittables.js').Hittables} [hittables] things in the air, tested
+   *   first: they are between the drop and the ground, so they get the paint instead
+   */
+  constructor(scene, onImpact, hittables) {
     this.onImpact = onImpact;
+    this.hittables = hittables;
     this.live = [];
     this.pool = [];
+    this.prev = new THREE.Vector3();
 
     // 7x5 segments was a visible faceted lump against white paper. The pool shares one
     // geometry, so a smooth sphere costs one buffer, not 64.
@@ -57,7 +66,16 @@ export class Droplets {
     for (let i = this.live.length - 1; i >= 0; i--) {
       const d = this.live[i];
       d.vel.y -= cfg.gravity * dt;
+      this.prev.copy(d.mesh.position);
       d.mesh.position.addScaledVector(d.vel, dt);
+
+      // Anything in the air is hit on the way down, before the ground is considered.
+      if (this.hittables?.hit(this.prev, d.mesh.position, d.color)) {
+        d.mesh.visible = false;
+        this.pool.push(d.mesh);
+        this.live.splice(i, 1);
+        continue;
+      }
 
       // Stretch along travel, so a fast droplet reads as a streak rather than a ball.
       const speed = d.vel.length();

@@ -24,8 +24,8 @@ function merge(parts) {
   return mergeGeometries(parts.map((g) => (g.index ? g.toNonIndexed() : g)));
 }
 
-function inkMaterial(opts = {}) {
-  return applyInk(new THREE.MeshLambertMaterial({ toneMapped: false, ...opts }));
+function inkMaterial(opts = {}, inkOpts) {
+  return applyInk(new THREE.MeshLambertMaterial({ toneMapped: false, ...opts }), inkOpts);
 }
 
 // ---------------------------------------------------------------------------
@@ -288,11 +288,15 @@ export function createLifeforms(density, rand) {
       phase: rand() * Math.PI * 2,
       x: 0, y, z: 0,
       sx: k, sy: k, sz: k,
+      // The bell is 3.64 long and 2 wide at scale 1. Use the long half-extent so aiming
+      // at one is forgiving; a disc that only answered to its own silhouette would be
+      // almost impossible to hit from behind at cruising speed.
+      hitRadius: k * 1.82,
     });
   }
   const grazerMesh = instanced(
     grazerGeometry(),
-    inkMaterial({ transparent: true, opacity: 0.78, depthWrite: true }),
+    inkMaterial({ transparent: true, opacity: 0.78, depthWrite: true }, { perInstance: true }),
     grazers,
   );
   meshes.push(grazerMesh);
@@ -326,9 +330,10 @@ export function createLifeforms(density, rand) {
       ry: rand() * Math.PI * 2,
       rate: 0.15 + rand() * 0.3,
       phase: rand() * Math.PI * 2,
+      hitRadius: k * 1.1,
     });
   }
-  const sporeMesh = instanced(sporeGeometry(), inkMaterial(), spores);
+  const sporeMesh = instanced(sporeGeometry(), inkMaterial({}, { perInstance: true }), spores);
   meshes.push(sporeMesh);
   animated.push((t) => {
     spores.forEach((it, i) => {
@@ -341,6 +346,9 @@ export function createLifeforms(density, rand) {
 
   return {
     meshes,
+    // The two airborne layers, for the droplet hit test. The rooted ones stay on the
+    // world paint map: they are part of the ground they stand in.
+    airborne: [{ mesh: grazerMesh, items: grazers }, { mesh: sporeMesh, items: spores }],
     /** @param {number} elapsed seconds */
     update(elapsed) {
       for (const fn of animated) fn(elapsed);

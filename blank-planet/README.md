@@ -80,6 +80,19 @@ that map by world XZ. Where there is no paint the fragment is pure white, so the
 is genuinely invisible until you hit it. Where there is, the object's own shading
 *modulates* the paint rather than tinting it, so a growth still reads as a growth.
 
+**Things in the air are the exception.** The map is one texture indexed by XZ and knows
+nothing about height, so it painted the entire column above a splat: the island 200 units
+overhead, every creature drifting through. And the droplet only ever tested the terrain,
+so a drop aimed at a grazer went through it. Islands, sky grazers and spore floaters
+therefore carry their own colour in an `instancePaint` attribute (`applyInk(mat,
+{ perInstance: true })`), written by `src/hittables.js` when a drop's path actually
+crosses them. The test is segment-against-sphere, not point-against-sphere: near terminal
+velocity a drop covers several units per frame and would otherwise step straight over a
+three-unit spore.
+
+Rooted things stay on the world map. They are part of the ground they stand in, and a
+splat at the foot of a spire should run up it.
+
 `src/post/WatercolorEffect.js` adds the painterly layer: a four-quadrant Kuwahara
 filter, an outline from the luminance gradient, screen-locked canvas grain, and a
 vignette that falls off to white.
@@ -97,7 +110,9 @@ src/
   collision.js     spatial hash + circle push-out, height aware
   audio.js         ambient bed, mixed by how much ground you have painted
   debug.js         lil-gui + stats, loaded only with ?debug
+  hittables.js     things in the air, and the paint they carry per instance
   ink/             paintMap.js, inkMaterial.js
   post/            composer.js, WatercolorEffect.js
-  props/           flowers, grass, trees, smallProps, cards, moth, features, droplets
+  props/           flowers, grass, trees, smallProps, cards, moth, features,
+                   lifeforms, droplets
 ```
