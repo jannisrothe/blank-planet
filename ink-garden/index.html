@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ink Garden</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='5' fill='%23e8869c'/></svg>">
+<style>
+  html, body {
+    margin: 0; padding: 0; overflow: hidden; height: 100%; width: 100%;
+    background: #fff; font-family: ui-sans-serif, -apple-system, sans-serif;
+  }
+  canvas { display: block; }
+  #overlay {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: rgba(255, 255, 255, 0.92); cursor: pointer; z-index: 10; text-align: center;
+  }
+  #overlay h1 { font-size: 20px; font-weight: 500; color: #2c2c2c; margin: 0 0 10px; letter-spacing: 0.01em; }
+  #overlay p { font-size: 13px; color: #999; margin: 0; line-height: 1.7; }
+  #hint {
+    position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+    font-size: 12px; color: #bbb; pointer-events: none; z-index: 5;
+  }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="overlay">
+  <div>
+    <h1>click to enter the garden</h1>
+    <p>the page is blank · walk and it blooms<br>WASD to move · mouse to look · M mutes · esc to leave</p>
+  </div>
+</div>
+<div id="hint" class="hidden">walk to spread the ink · it dries after a few seconds</div>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>

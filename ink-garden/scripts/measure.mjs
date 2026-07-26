@@ -187,10 +187,18 @@ async function main() {
 
   // A trusted click on the overlay grants pointer lock and unblocks audio.
   // bringToFront() matters: without focus Chrome rejects the lock request.
+  // Chrome under automation sometimes grants the lock on its own before we get here,
+  // in which case the overlay is already gone and clicking it would hang.
   await page.bringToFront();
+  // Chrome under automation sometimes hands out a lock with no gesture behind it, and
+  // that phantom lock gets revoked mid-run. Drop it and take a real one instead.
+  if (await page.evaluate(() => window.__probe.locked())) {
+    await page.evaluate(() => document.exitPointerLock());
+    await page.waitForTimeout(1600); // Chrome refuses a re-lock straight after an exit
+  }
   const overlay = page.locator('#overlay');
-  await ((await overlay.count()) ? overlay.click() : page.locator('canvas').click());
-  await page.waitForTimeout(800);
+  await ((await overlay.isVisible()) ? overlay : page.locator('canvas')).click();
+  await page.waitForTimeout(900);
 
   const locked = await page.evaluate(() => window.__probe.locked());
   if (!locked) console.warn('  ! pointer lock not held; movement will not apply\n');
@@ -213,6 +221,20 @@ async function main() {
   const stillLocked = await page.evaluate(() => window.__probe.locked());
   const whiteWalk = await whiteness(page, uncapped);
 
+  // The core promise: with no ink on the paper you cannot see the world at all.
+  // Wiping the mask and looking at the same view is a direct test of that.
+  let whiteBlank = NaN;
+  if (!uncapped && (await page.evaluate(() => !!globalThis.__inkGarden))) {
+    await page.evaluate(() => {
+      const g = globalThis.__inkGarden;
+      g.freeze = true;      // stop the loop re-inking under the player
+      g.inkMap.clear();
+    });
+    await page.waitForTimeout(400);
+    whiteBlank = await whiteness(page, false);
+    await page.evaluate(() => { globalThis.__inkGarden.freeze = false; });
+  }
+
   const shot = value('shot', null);
   if (shot && !uncapped) await page.screenshot({ path: shot });
 
@@ -223,6 +245,10 @@ async function main() {
   console.log(`  pointer lock ${locked ? 'acquired' : 'NOT ACQUIRED'}${locked && !stillLocked ? ' but LOST during walk (numbers are suspect)' : ''}`);
   if (Number.isFinite(whiteIdle)) {
     console.log(`  white pixels ${(whiteIdle * 100).toFixed(1)}% before entering -> ${(whiteWalk * 100).toFixed(1)}% while walking`);
+  }
+  if (Number.isFinite(whiteBlank)) {
+    const pass = whiteBlank > 0.99;
+    console.log(`  blank paper  ${(whiteBlank * 100).toFixed(2)}% white with the ink wiped  ${pass ? 'PASS' : 'FAIL (world still visible)'}`);
   }
   console.log(`  console errs ${errors.length}${errors.length ? '\n    ' + errors.slice(0, 5).join('\n    ') : ''}\n`);
 
