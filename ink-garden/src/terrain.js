@@ -19,12 +19,35 @@ const noise = [
   createNoise2D(noiseRand),
   createNoise2D(noiseRand),
   createNoise2D(noiseRand),
+  createNoise2D(noiseRand), // basins
 ];
 
 /** Ridged noise: fold the signal at zero and invert, turning smooth hills into crests. */
 function ridged(x, z, freq, n) {
   return 1 - Math.abs(n(x * freq, z * freq));
 }
+
+/**
+ * Craters, fixed at module load off the terrain seed so every call to heightAt agrees.
+ * Placed away from the spawn flat, and rejected if they overlap an earlier one: two
+ * bowls sharing a floor read as one shapeless dent rather than two craters.
+ */
+const craters = (() => {
+  const r = rng(cfg.seed + 977);
+  const [rMin, rMax] = cfg.craterRadius;
+  const [dMin, dMax] = cfg.craterDepth;
+  const out = [];
+  const half = WORLD_SIZE / 2;
+  for (let tries = 0; tries < cfg.craters * 40 && out.length < cfg.craters; tries++) {
+    const radius = rMin + r() * (rMax - rMin);
+    const x = (r() * 2 - 1) * (half - radius);
+    const z = (r() * 2 - 1) * (half - radius);
+    if (Math.hypot(x, z) < cfg.spawnFlat + radius) continue;
+    if (out.some((c) => Math.hypot(c.x - x, c.z - z) < c.radius + radius)) continue;
+    out.push({ x, z, radius, depth: dMin + r() * (dMax - dMin) });
+  }
+  return out;
+})();
 
 export function heightAt(x, z) {
   let h = 0;
@@ -38,6 +61,18 @@ export function heightAt(x, z) {
   }
 
   h += (ridged(x, z, cfg.frequency * 1.6, noise[3]) - 0.5) * cfg.ridgeAmplitude;
+  h += noise[4](x * cfg.basinFrequency, z * cfg.basinFrequency) * cfg.basinAmplitude;
+
+  for (const c of craters) {
+    const d = Math.hypot(x - c.x, z - c.z);
+    if (d >= c.radius) continue;
+    // cos ramp rather than a linear or quadratic one: it meets the surrounding ground
+    // with zero slope at both ends, so neither the lip nor the floor shows a crease.
+    const t = d / c.radius;
+    const bowl = (Math.cos(t * Math.PI) + 1) / 2;      // 1 at the centre, 0 at the edge
+    const rim = Math.sin(t * Math.PI) ** 6;            // a narrow swell just inside the lip
+    h += -c.depth * bowl + c.depth * cfg.craterRim * rim;
+  }
 
   // Flatten a landing area around the origin so the moth never spawns inside a ridge.
   const d = Math.hypot(x, z);

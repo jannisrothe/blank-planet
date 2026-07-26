@@ -18,7 +18,7 @@ export function createDebug({ post: postFx, paint, ambience }) {
   const gui = new GUI({ title: 'ink garden' });
 
   const fSplat = gui.addFolder('splat');
-  fSplat.add(paintCfg, 'radius', 1, 40, 0.5).name('splat size (units)');
+  fSplat.add(paintCfg, 'radius', 1, 80, 0.5).name('splat size (units)');
   fSplat.add(paintCfg, 'spikes', 0, 3, 0.02).name('spike length');
   fSplat.add(paintCfg, 'satellites', 0, 3, 0.02).name('spatter spread');
   fSplat.add(paintCfg, 'edgeSoftness', 0, 0.5, 0.005).name('edge softness');
@@ -47,7 +47,7 @@ export function createDebug({ post: postFx, paint, ambience }) {
 
   const fFlight = gui.addFolder('flight');
   fFlight.add(flightCfg, 'driftSpeed', 1, 30, 0.5).name('drift speed');
-  fFlight.add(flightCfg, 'groundClearance', 5, 200, 1).name('min altitude');
+  fFlight.add(flightCfg, 'groundClearance', 5, 400, 1).name('min altitude');
   fFlight.add(flightCfg, 'smoothing', 0.5, 8, 0.1).name('steering weight');
 
   const fAudio = gui.addFolder('audio');
@@ -59,7 +59,10 @@ export function createDebug({ post: postFx, paint, ambience }) {
   const fDensity = gui.addFolder('density (reload to apply)');
   const counts = { ...density };
   for (const k of Object.keys(counts)) {
-    fDensity.add(counts, k, 0, 30000, 100).onFinishChange(() => {
+    // One range for everything put the lifeform counts, which are in the tens, on a
+    // slider that stepped by 100. Scale the range and step to the value it starts at.
+    const max = Math.max(50, counts[k] * 4);
+    fDensity.add(counts, k, 0, max, max > 4000 ? 100 : 1).onFinishChange(() => {
       const q = new URLSearchParams(location.search);
       q.set('debug', '1');
       for (const [key, v] of Object.entries(counts)) q.set(key, v);

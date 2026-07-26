@@ -18,7 +18,9 @@ export class Droplets {
     this.live = [];
     this.pool = [];
 
-    const geo = new THREE.SphereGeometry(1, 7, 5);
+    // 7x5 segments was a visible faceted lump against white paper. The pool shares one
+    // geometry, so a smooth sphere costs one buffer, not 64.
+    const geo = new THREE.SphereGeometry(1, 32, 20);
     for (let i = 0; i < cfg.poolSize; i++) {
       const mesh = new THREE.Mesh(
         geo,

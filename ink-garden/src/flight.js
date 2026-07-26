@@ -20,6 +20,12 @@ export function createFlight(camera, domElement, { moth, colliders, onLock, onUn
     locked: false,
   };
 
+  // Until the player enters, update() returns early and never touches the camera, so
+  // without this the entry screen renders from the world origin: down on the ground,
+  // nowhere near the moth. Put it where the chase camera will be.
+  camera.position.set(state.pos.x, state.pos.y + cfg.camUp, state.pos.z + cfg.camBack);
+  camera.lookAt(state.pos.x, state.pos.y - 2.2, state.pos.z);
+
   // Inert unless a test sets `active`. Chrome revokes pointer lock within seconds under
   // automation, so the harness cannot drive the player through it.
   const input = { active: false, trim: 0, turn: 0, climb: 0 };

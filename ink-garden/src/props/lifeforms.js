@@ -1,0 +1,349 @@
+import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { applyInk } from '../ink/inkMaterial.js';
+import { scatter } from '../scatter.js';
+import { heightAt } from '../terrain.js';
+import { WORLD_SIZE, life as cfg, flight } from '../config.js';
+
+/**
+ * The things living on the planet. Six forms, picked to differ in composition rather
+ * than to be six sizes of the same shape: vegetal, fleshy, shelled, skeletal, soft and
+ * airborne.
+ *
+ * They obey the world rule, so every one of them is ink-washed and invisible against
+ * blank paper until you land pigment on it. You fly over a shape you can barely make out,
+ * hit it, and only then find out what it was.
+ *
+ * The paint map is indexed by world XZ, not per object. A grazer drifting over painted
+ * ground therefore takes that colour on and loses it again coming out the other side.
+ * That falls out of the existing design rather than being built, and it is kept.
+ */
+
+/** @see features.js -- mergeGeometries refuses to mix indexed and non-indexed inputs. */
+function merge(parts) {
+  return mergeGeometries(parts.map((g) => (g.index ? g.toNonIndexed() : g)));
+}
+
+function inkMaterial(opts = {}) {
+  return applyInk(new THREE.MeshLambertMaterial({ toneMapped: false, ...opts }));
+}
+
+// ---------------------------------------------------------------------------
+// Geometry. Each builder returns a shape roughly 1 unit across so the caller can
+// scale by the size it actually wants, the same convention features.js uses.
+// ---------------------------------------------------------------------------
+
+/** Vegetal: a thin stalk under a heavy bulb, with a few limp tendrils. 3.6 units tall. */
+function anemoneGeometry() {
+  const stalk = new THREE.CylinderGeometry(0.07, 0.16, 3.0, 12).translate(0, 1.5, 0);
+  const bulb = new THREE.SphereGeometry(0.36, 20, 14).scale(1, 0.85, 1).translate(0, 3.1, 0);
+  const tendrils = [];
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2;
+    tendrils.push(
+      new THREE.CylinderGeometry(0.012, 0.04, 0.7, 8)
+        .rotateZ(0.5)
+        .translate(Math.cos(a) * 0.22, 2.85, Math.sin(a) * 0.22),
+    );
+  }
+  return merge([stalk, bulb, ...tendrils]);
+}
+const ANEMONE_HEIGHT = 3.6;
+
+/** Fleshy: a squat two-lobed bag, meant to sit half-buried. ~2 units wide. */
+function sacGeometry() {
+  const main = new THREE.SphereGeometry(1, 28, 18).scale(1, 0.72, 1);
+  const lobe = new THREE.SphereGeometry(0.52, 22, 14).scale(1, 0.8, 1).translate(0.62, 0.28, 0.1);
+  const pore = new THREE.SphereGeometry(0.2, 16, 12).translate(-0.1, 0.68, 0.1);
+  return merge([main, lobe, pore]);
+}
+
+/**
+ * Shelled: a coiled tube on a logarithmic spiral, tapered along its length.
+ * TubeGeometry has one radius for the whole tube, so the taper is applied afterwards by
+ * pulling each ring toward its own point on the curve. Without it this reads as a hose.
+ */
+function shellGeometry() {
+  const points = [];
+  const TURNS = 5.2;
+  for (let i = 0; i <= 96; i++) {
+    const t = i / 96;
+    const a = t * Math.PI * TURNS;
+    const r = 0.09 * Math.exp(2.0 * t);
+    points.push(new THREE.Vector3(Math.cos(a) * r, t * 0.34, Math.sin(a) * r));
+  }
+  const curve = new THREE.CatmullRomCurve3(points);
+  const tubular = 140;
+  const radial = 12;
+  const geo = new THREE.TubeGeometry(curve, tubular, 0.12, radial, false);
+
+  const pos = geo.attributes.position;
+  const centre = new THREE.Vector3();
+  const v = new THREE.Vector3();
+  for (let i = 0; i <= tubular; i++) {
+    // The tip is a fifth of the mouth, which is what makes it read as grown rather than
+    // extruded. Squared, so most of the narrowing happens near the tip.
+    const k = 0.2 + 0.8 * (i / tubular) ** 2;
+    curve.getPointAt(i / tubular, centre);
+    for (let j = 0; j <= radial; j++) {
+      const idx = i * (radial + 1) + j;
+      v.fromBufferAttribute(pos, idx).sub(centre).multiplyScalar(k).add(centre);
+      pos.setXYZ(idx, v.x, v.y, v.z);
+    }
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/** Skeletal: a row of ribs under a spine, fat in the middle. ~2.4 units long. */
+function ribsGeometry() {
+  const parts = [];
+  const COUNT = 7;
+  for (let i = 0; i < COUNT; i++) {
+    const t = i / (COUNT - 1);
+    const s = 0.42 + Math.sin(t * Math.PI) * 0.58;
+    parts.push(
+      new THREE.TorusGeometry(s, 0.05, 10, 26, Math.PI)
+        .translate(0, 0, (t - 0.5) * 2.4),
+    );
+  }
+  parts.push(
+    new THREE.CylinderGeometry(0.055, 0.055, 2.5, 10)
+      .rotateX(Math.PI / 2)
+      .translate(0, 0.92, 0),
+  );
+  return merge(parts);
+}
+
+/** Soft: a flattened disc trailing tendrils, drifting at altitude. ~2 units across. */
+function grazerGeometry() {
+  const bell = new THREE.SphereGeometry(1, 26, 16).scale(1, 0.20, 1.35);
+  const dome = new THREE.SphereGeometry(0.55, 20, 14).scale(1, 0.55, 1).translate(0, 0.1, -0.2);
+  const tendrils = [];
+  for (let i = 0; i < 5; i++) {
+    tendrils.push(
+      new THREE.CylinderGeometry(0.018, 0.06, 1.8, 8)
+        .rotateX(Math.PI / 2)
+        .translate((i - 2) * 0.24, -0.04, 1.4),
+    );
+  }
+  return merge([bell, dome, ...tendrils]);
+}
+
+/** Airborne: a lumpy little float. Deliberately cheap, there are a lot of them. */
+function sporeGeometry() {
+  const body = new THREE.SphereGeometry(1, 14, 10);
+  const a = new THREE.SphereGeometry(0.45, 12, 8).translate(0.7, 0.3, 0);
+  const b = new THREE.SphereGeometry(0.32, 12, 8).translate(-0.4, -0.6, 0.4);
+  return merge([body, a, b]);
+}
+
+// ---------------------------------------------------------------------------
+// Placement and motion
+// ---------------------------------------------------------------------------
+
+const _m = new THREE.Matrix4();
+const _q = new THREE.Quaternion();
+const _e = new THREE.Euler();
+const _p = new THREE.Vector3();
+const _s = new THREE.Vector3();
+
+function writeMatrix(mesh, i, it) {
+  _e.set(it.rx ?? 0, it.ry ?? 0, it.rz ?? 0);
+  _p.set(it.x, it.y, it.z);
+  _s.set(it.sx, it.sy, it.sz);
+  mesh.setMatrixAt(i, _m.compose(_p, _q.setFromEuler(_e), _s));
+}
+
+function instanced(geo, material, items) {
+  const mesh = new THREE.InstancedMesh(geo, material, items.length);
+  items.forEach((it, i) => writeMatrix(mesh, i, it));
+  mesh.instanceMatrix.needsUpdate = true;
+  mesh.frustumCulled = false;
+  return mesh;
+}
+
+/**
+ * Two altitude bands with a gap over the cruise height, the same trick features.js uses
+ * for islands. Nothing up here has collision, so keeping 270-340 empty is what stops the
+ * moth flying through a creature, and it costs nothing.
+ */
+function bandedAltitude(rand) {
+  const a = flight.spawnAltitude;
+  return rand() < 0.55 ? a * (0.20 + rand() * 0.42) : a * (1.35 + rand() * 0.50);
+}
+
+/**
+ * The first thing you see is the entry screen, and its overlay is white but not opaque,
+ * so anything sitting near the spawn point shows through it as a grey blob on a page
+ * whose own text says it is blank. Airborne things keep clear of that spot.
+ */
+const SPAWN_CLEAR = 170;
+function tooCloseToSpawn(x, y, z) {
+  return Math.hypot(x, y - flight.spawnAltitude, z) < SPAWN_CLEAR;
+}
+
+export function createLifeforms(density, rand) {
+  const meshes = [];
+  const animated = [];
+
+  // -- anemones, in clumps. One alone reads as a stray prop; a stand of them reads as
+  // something growing there.
+  const clumps = scatter(Math.ceil(density.anemones / 6), rand, 24, 60);
+  const anemones = [];
+  for (const c of clumps) {
+    const n = 3 + Math.floor(rand() * 6);
+    for (let i = 0; i < n && anemones.length < density.anemones; i++) {
+      const a = rand() * Math.PI * 2;
+      const r = rand() * 16;
+      const x = c.x + Math.cos(a) * r;
+      const z = c.z + Math.sin(a) * r;
+      const height = 8 + rand() * 17;
+      const k = height / ANEMONE_HEIGHT;
+      anemones.push({
+        x, y: heightAt(x, z) - 0.4, z,
+        sx: k * (0.8 + rand() * 0.5), sy: k, sz: k * (0.8 + rand() * 0.5),
+        ry: rand() * Math.PI * 2,
+        phase: rand() * Math.PI * 2,
+      });
+    }
+  }
+  const anemoneMesh = instanced(anemoneGeometry(), inkMaterial(), anemones);
+  meshes.push(anemoneMesh);
+  animated.push((t) => {
+    anemones.forEach((it, i) => {
+      const s = Math.sin(t * cfg.swaySpeed + it.phase) * cfg.swayAngle;
+      it.rx = s;
+      it.rz = Math.cos(t * cfg.swaySpeed * 0.7 + it.phase) * cfg.swayAngle * 0.6;
+      writeMatrix(anemoneMesh, i, it);
+    });
+    anemoneMesh.instanceMatrix.needsUpdate = true;
+  });
+
+  // -- breathing sacs, sunk into the ground so they read as part of it until they move
+  const sacs = scatter(density.sacs, rand, 30, 70).map((s) => {
+    const size = 15 + rand() * 30;
+    const k = size / 2;
+    return {
+      x: s.x, y: s.y - size * 0.20, z: s.z,
+      sx: k, sy: k * (0.8 + rand() * 0.4), sz: k,
+      ry: rand() * Math.PI * 2,
+      base: k,
+      phase: rand() * Math.PI * 2,
+    };
+  });
+  const sacMesh = instanced(sacGeometry(), inkMaterial(), sacs);
+  meshes.push(sacMesh);
+  animated.push((t) => {
+    sacs.forEach((it, i) => {
+      const b = 1 + Math.sin(t * cfg.breathSpeed + it.phase) * cfg.breathAmount;
+      it.sx = it.base * b;
+      it.sz = it.base * b;
+      writeMatrix(sacMesh, i, it);
+    });
+    sacMesh.instanceMatrix.needsUpdate = true;
+  });
+
+  // -- spiral shells, lying where they fell
+  const shells = scatter(density.shells, rand, 34, 80).map((s) => {
+    const k = (20 + rand() * 30) / 1.4;
+    return {
+      x: s.x, y: s.y + k * 0.05, z: s.z,
+      sx: k, sy: k, sz: k,
+      rx: (rand() - 0.5) * 0.7,
+      ry: rand() * Math.PI * 2,
+      rz: (rand() - 0.5) * 0.7,
+    };
+  });
+  meshes.push(instanced(shellGeometry(), inkMaterial({ side: THREE.DoubleSide }), shells));
+
+  // -- rib arcs, half sunk, so it reads as something that has been there a long time
+  const ribs = scatter(density.ribs, rand, 40, 90).map((s) => {
+    const k = (30 + rand() * 40) / 2.4;
+    return {
+      x: s.x, y: s.y - k * 0.18, z: s.z,
+      sx: k, sy: k * (0.8 + rand() * 0.5), sz: k,
+      ry: rand() * Math.PI * 2,
+      rz: (rand() - 0.5) * 0.2,
+    };
+  });
+  meshes.push(instanced(ribsGeometry(), inkMaterial(), ribs));
+
+  // -- sky grazers, each on its own slow circle. Translucent, so on the occasions you do
+  // pass through one it reads as drifting through something soft.
+  const half = WORLD_SIZE / 2 - 90;
+  const grazers = [];
+  for (let tries = 0; tries < density.grazers * 30 && grazers.length < density.grazers; tries++) {
+    const k = (25 + rand() * 35) / 2;
+    const cx = (rand() * 2 - 1) * half;
+    const cz = (rand() * 2 - 1) * half;
+    const orbit = 60 + rand() * 130;
+    const y = bandedAltitude(rand);
+    // Reject on the whole orbit, not just where it happens to start: a circle that
+    // passes through the spawn point would drift into it a minute later.
+    if (Math.abs(Math.hypot(cx, cz) - orbit) < SPAWN_CLEAR && tooCloseToSpawn(0, y, 0)) continue;
+    grazers.push({
+      cx, cz, orbit,
+      rate: cfg.grazerSpeed * (0.6 + rand() * 0.8) * (rand() < 0.5 ? -1 : 1),
+      phase: rand() * Math.PI * 2,
+      x: 0, y, z: 0,
+      sx: k, sy: k, sz: k,
+    });
+  }
+  const grazerMesh = instanced(
+    grazerGeometry(),
+    inkMaterial({ transparent: true, opacity: 0.78, depthWrite: true }),
+    grazers,
+  );
+  meshes.push(grazerMesh);
+  animated.push((t) => {
+    grazers.forEach((it, i) => {
+      const a = t * it.rate + it.phase;
+      it.x = it.cx + Math.cos(a) * it.orbit;
+      it.z = it.cz + Math.sin(a) * it.orbit;
+      // nose along the tangent, and lean into the turn
+      it.ry = -a + (it.rate > 0 ? -Math.PI / 2 : Math.PI / 2);
+      it.rz = it.rate > 0 ? 0.16 : -0.16;
+      writeMatrix(grazerMesh, i, it);
+    });
+    grazerMesh.instanceMatrix.needsUpdate = true;
+  });
+
+  // -- spores, filling the air column so there is something between you and the ground
+  const spores = [];
+  for (let tries = 0; tries < density.spores * 8 && spores.length < density.spores; tries++) {
+    const k = 2 + rand() * 4;
+    const x = (rand() * 2 - 1) * half;
+    const z = (rand() * 2 - 1) * half;
+    // Spread over the whole column you can fly in, cruise band included: these are small
+    // enough that drifting through one is the point rather than a collision.
+    const base = 40 + rand() * (flight.ceiling - 40);
+    if (tooCloseToSpawn(x, base, z)) continue;
+    spores.push({
+      x, z, base,
+      y: 0,
+      sx: k, sy: k, sz: k,
+      ry: rand() * Math.PI * 2,
+      rate: 0.15 + rand() * 0.3,
+      phase: rand() * Math.PI * 2,
+    });
+  }
+  const sporeMesh = instanced(sporeGeometry(), inkMaterial(), spores);
+  meshes.push(sporeMesh);
+  animated.push((t) => {
+    spores.forEach((it, i) => {
+      it.y = it.base + Math.sin(t * it.rate + it.phase) * cfg.sporeBob;
+      it.rx = t * it.rate * 0.4 + it.phase;
+      writeMatrix(sporeMesh, i, it);
+    });
+    sporeMesh.instanceMatrix.needsUpdate = true;
+  });
+
+  return {
+    meshes,
+    /** @param {number} elapsed seconds */
+    update(elapsed) {
+      for (const fn of animated) fn(elapsed);
+    },
+  };
+}

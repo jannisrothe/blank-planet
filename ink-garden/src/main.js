@@ -14,6 +14,7 @@ import { createMushrooms, createReeds, createRocks } from './props/smallProps.js
 import { createMoth } from './props/moth.js';
 import { Droplets } from './props/droplets.js';
 import { createIslands, createArches, createGrowths, createSpires } from './props/features.js';
+import { createLifeforms } from './props/lifeforms.js';
 import { createComposer } from './post/composer.js';
 import { Ambience } from './audio.js';
 import { density, droplet as dropCfg } from './config.js';
@@ -40,8 +41,10 @@ const trees = createTrees(density.trees, rand);
 const rocks = createRocks(density.rocks, rand);
 const growths = createGrowths(density.growths, rand);
 const spires = createSpires(density.spires, rand);
+const life = createLifeforms(density, rand);
 
 scene.add(
+  ...life.meshes,
   ...createFlowers(density.flowers, rand),
   ...createGrass(density.grass, rand),
   ...trees.meshes,
@@ -145,6 +148,7 @@ function frame() {
   const elapsed = timer.getElapsed();
 
   flight.update(dt, elapsed);
+  life.update(elapsed);
   droplets.update(dt);
   updateInkUniforms(paint.texture);
 

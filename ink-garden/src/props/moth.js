@@ -73,6 +73,12 @@ export function createMoth() {
   // Parts hang off an inner rig so the idle bob can move them without touching
   // root.position, which flight.js owns.
   const rig = new THREE.Group();
+  // The parts below are laid out nose-toward +Z, but flight.js travels along the root's
+  // local -Z (`forward.set(0, 0, -1)`), so unrotated the moth flew tail-first with its
+  // antennae trailing behind. Turning the rig rather than the root keeps root.rotation
+  // free for flight.js, and the moth is left-right symmetric so bank still rolls the
+  // outside wing up.
+  rig.rotation.y = Math.PI;
   root.add(rig);
   const scale = 1.5;
 

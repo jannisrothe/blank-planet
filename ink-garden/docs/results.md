@@ -39,6 +39,30 @@ Every run asserts these, and they fail loudly rather than silently:
 | Ink drives the mix | 400 Hz @0.15 blank → 18 kHz @0.85 in a fresh bloom |
 | Console errors | 0 |
 
+## v3 (300-unit cruise, alien environment)
+
+| | before | after |
+|---|---|---|
+| Cruise altitude | 150 | 200 |
+| Min ground clearance | 60 | 90 |
+| Drift speed | 6 | 16 |
+| Splat radius | 16 | 18 |
+| Terrain height span, 256² grid | 71.5 units | **138.1 units** |
+| Deepest bowl on the z=0 line | 6.2 below its rim | **18.5 below its rim** |
+| Draw calls | 33 | 40 |
+| fps p50 / p95, vsync on | 59.9 / 56.8 | **30.0 / 29.7** |
+
+Altitude went to 300 first and came back to 200. At 300 a radius-18 splat covered a few
+pixels and painting read as speckle; the round trip is why the island and grazer altitude
+bands are now written as fractions of `flight.spawnAltitude` rather than as the literal
+numbers that suited a 300-unit cruise.
+
+The frame rate halved with the altitude change and has not moved since. It is fill-bound,
+not object-bound: cutting flowers, grass, reeds and mushrooms by 85% (72,700 instances
+down to 9,700) left p50 at exactly 30.0 fps, so the counts were restored. Adding the six
+lifeform layers on top also left it at 30.0. The cost is in fragments, so it lives in the
+post pass or the render scale, and neither has been touched yet.
+
 ## Bugs that produced confident, wrong output
 
 Each of these looked fine until something was measured or rendered side by side.
@@ -66,6 +90,20 @@ Each of these looked fine until something was measured or rendered side by side.
    the pigment bug, not shading, so forms were left flat for no reason. Back to 0.58.
 8. **The persistence gate failed on a stain that grew.** It asserted "unchanged", but a
    slow bloom keeps depositing; permanence means coverage must never *decrease*.
+9. **The camera far plane was a hardcoded 300, and the cruise altitude was raised to 300.**
+   The entire planet was clipped out of the frustum. Every screenshot came back blank white
+   and the blank-paper gate passed at 100.00%, because nothing was being drawn at all. This
+   is gate lesson 5 again in a new costume: "the page is white" is only evidence of the
+   premise if something is in frame to be invisible. The far plane is now derived from
+   `WORLD_SIZE` and `flight.ceiling` so raising the ceiling cannot silently reintroduce it.
+10. **The moth was built nose-toward +Z while `flight.js` travels along local -Z,** so it
+   flew tail-first with its antennae trailing. Not visible in any gate. Only a screenshot
+   of the moth on its own showed it, and the harness's shot always frames it from behind
+   and too small to read.
+11. **The entry screen rendered from the world origin.** `flight.update()` returns early
+   until the player enters, so it never placed the camera, and the first thing you saw was
+   the view from inside the ground. It went unnoticed while the world was small; at a
+   300-unit spawn the two views have nothing in common.
 
 ## v1 bugs, kept for the record
 
@@ -85,4 +123,12 @@ npm run build
 npm run measure                    # all gates, capped
 npm run measure -- --shot out.png  # paints, climbs, then shoots
 npm run measure -- --baseline      # the original single-file prototype
+
+node scripts/inspect.mjs out.png 45   # paints a tight patch, parks the camera, looks at it
 ```
+
+`inspect.mjs` exists because the measure harness cannot show the world any more. It always
+frames the moth, and from 300 units up with the camera aimed at the moth the ground sits
+off the bottom edge, so its screenshot is a moth on blank paper no matter what the planet
+looks like. The second argument is the camera height above the patch: 45 to read a shape,
+300 to see what a splat actually looks like from cruising altitude.

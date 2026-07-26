@@ -14,19 +14,32 @@ export const terrain = {
   amplitude: 26,
   ridgeAmplitude: 22,  // ridged octave, carves spines and valleys
   spawnFlat: 40,       // flattened radius around the origin so the moth spawns clear
+
+  // From 300 units up the fbm octaves average out into an even texture. This is a much
+  // broader swell underneath them: features hundreds of units across, which is the only
+  // scale that still reads as landform from cruising altitude.
+  basinFrequency: 0.00085,
+  basinAmplitude: 54,
+
+  craters: 9,
+  craterRadius: [42, 110],
+  craterDepth: [22, 58],
+  craterRim: 0.28,     // rim height as a fraction of depth
 };
 
 export const flight = {
-  driftSpeed: 6,        // a slow drift; you are surveying, not commuting
+  driftSpeed: 16,       // twice the ground flow the old 6 gave at 150 units
   minSpeed: 2,
-  maxSpeed: 18,
+  maxSpeed: 40,         // headroom, so W still does something at the new cruise speed
   trimRate: 7,          // how fast W/S change speed
   turnRate: 0.0016,     // radians per pixel of mouse movement
   maxPitch: 0.85,       // radians, keeps you from looping over the top
   smoothing: 2.4,       // higher is snappier; low values feel like heavy drifting
-  spawnAltitude: 150,   // high above the planet, not skimming it
-  groundClearance: 60,  // never descend closer than this to the terrain
-  ceiling: 320,
+  // High enough to read the planet's shape, low enough that a splat still reads as a
+  // splat. At 300 a radius-18 splat was a few pixels and painting looked like speckle.
+  spawnAltitude: 200,
+  groundClearance: 90,  // never descend closer than this to the terrain
+  ceiling: 420,
   // Chase camera, in the moth's local frame.
   camBack: 9.5,
   camUp: 4.6,
@@ -37,7 +50,8 @@ export const flight = {
 // of the capillary, advection and drying machinery exists any more.
 export const paint = {
   resolution: 2048,    // texels across the world: 0.31 world units each
-  radius: 16,          // splat radius in world units; larger, since you fly much higher
+  radius: 18,          // splat radius in world units; scaling this with the altitude to 30
+                       // filled the frame with one click, so it stays small on purpose
   satellites: 0.0,     // spatter droplets, off: the splats should read round and clean
   spikes: 0.0,         // radial fingers, off for the same reason
   wobble: 0.16,        // gentle out-of-round, so a splat is organic but never jagged
@@ -53,9 +67,9 @@ export const paint = {
 
 export const droplet = {
   poolSize: 64,
-  size: 2.2,           // bigger, so it stays readable falling from 150 units up
-  gravity: 46,         // roughly a 2.5s fall from cruising altitude
-  stretch: 0.03,       // how much speed elongates the falling blob
+  size: 2.0,           // a bead, not a boulder; still readable falling from 300 units up
+  gravity: 90,         // about a 2.1s fall from the cruise altitude
+  stretch: 0.0,        // off: any elongation reads as a streak, and this should be a ball
   throwSpeed: 3,       // forward push on release, on top of the moth's own velocity
 };
 
@@ -81,6 +95,25 @@ export const density = {
   arches: 60,
   growths: 260,
   spires: 340,
+
+  // Lifeforms. Counts are low because each one is large enough to read from 300 units;
+  // these are landmarks to aim pigment at, not ground cover.
+  anemones: 900,
+  sacs: 220,
+  shells: 130,
+  ribs: 70,
+  grazers: 18,
+  spores: 260,
+};
+
+// Lifeforms move slowly enough that you notice it on the second look, not the first.
+export const life = {
+  swaySpeed: 0.30,     // radians per second of the anemone lean
+  swayAngle: 0.16,     // how far it leans
+  breathSpeed: 0.22,   // sac inflate cycle
+  breathAmount: 0.11,  // fraction of size
+  grazerSpeed: 0.045,  // radians per second around its own drift circle
+  sporeBob: 5.5,       // world units of vertical travel
 };
 
 export const collision = {
