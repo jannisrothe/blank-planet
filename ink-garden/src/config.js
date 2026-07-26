@@ -1,35 +1,49 @@
 /**
- * Every tunable lives here so step 7 can bake measured values in one place
- * instead of hunting constants across modules.
+ * Every tunable lives here so the debug panel and the final bake touch one place.
  */
 
 export const WORLD_SIZE = 220;      // world spans WORLD_SIZE x WORLD_SIZE units
-export const EYE_HEIGHT = 1.7;
-export const WALK_SPEED = 12;
-export const RUN_SPEED = 20;
 
-export const ink = {
-  resolution: 512,   // ink map texels across the world
-  radius: 9,         // reveal radius in world units
-  fadeSeconds: 3.2,  // time constant for ink drying back to white
-  bleed: 1.35,       // diffusion blur in texels per frame; the watercolour spread
-  edgeWarp: 0.55,    // how ragged the blot boundary is (0 = perfect circle)
-
-  // Reveal ramps, in ink units 0..1. The two ramps overlap tightly on purpose:
-  // a wide gap between them leaves a broad gray halo that reads as dirt, not paint.
-  washLo: 0.04, washHi: 0.15,   // stage 1: shape emerges from the paper as a gray wash
-  pigLo: 0.07, pigHi: 0.30,     // stage 2: pigment floods in just behind it
-  rimLo: 0.05, rimMid: 0.12, rimHi: 0.28, // wet edge: pigment pools at the boundary
-  rimStrength: 0.30,
+export const terrain = {
+  seed: 20260726,
+  segments: 220,       // heightfield resolution; ridges need more than v1's 160
+  frequency: 0.008,
+  amplitude: 16,       // v1 was 0.6, which is why it read as flat
+  ridgeAmplitude: 14,  // ridged octave, carves spines and valleys
+  spawnFlat: 26,       // flattened radius around the origin so the moth spawns clear
 };
 
-export const density = {
-  flowers: 4800,
-  grass: 14000,
-  trees: 400,
-  mushrooms: 700,
-  rocks: 300,
-  reeds: 1600,
+export const flight = {
+  driftSpeed: 9,       // constant forward drift, world units per second
+  minSpeed: 3,
+  maxSpeed: 22,
+  trimRate: 9,         // how fast W/S change speed
+  turnRate: 0.0016,    // radians per pixel of mouse movement
+  maxPitch: 0.85,      // radians, keeps you from looping over the top
+  smoothing: 3.2,      // higher is snappier; low values feel like heavy drifting
+  groundClearance: 6,  // never fly closer than this to the terrain
+  ceiling: 95,
+  // Chase camera, in the moth's local frame.
+  camBack: 7.5,
+  camUp: 2.6,
+  camLag: 4.0,
+};
+
+export const ink = {
+  resolution: 1024,    // texels across the world; tendrils need the detail
+  dropRadius: 20,      // a drop from altitude covers a lot of ground
+  dropWater: 1.0,
+  drySeconds: 10,      // how long a bloom stays wet and creeping
+  capillary: 0.985,    // how readily water advances into dry paper; <1 or it never stops
+  advection: 1.6,      // how hard pigment is dragged along the flow
+  granulation: 0.55,   // paper tooth modulating where pigment settles
+  edgeDarkening: 0.9,  // extra deposition where the water gradient is steep
+  paperScale: 190,     // frequency of the granulation and capacity noise
+
+  // How the wash reads on the world.
+  coverGamma: 0.75,    // <1 makes thin coverage show up sooner
+  shadeFloor: 0.55,    // object shading multiplies pigment between this and this+range
+  shadeRange: 0.9,
 };
 
 export const post = {
@@ -41,8 +55,23 @@ export const post = {
   fibre: 2.2,       // how far pigment wanders along the paper grain
 };
 
+// Baked from the debug panel on 2026-07-26. Reeds were scrolled off screen, so they are
+// scaled by the same factor as the others.
+export const density = {
+  flowers: 17800,
+  grass: 18500,
+  trees: 1000,
+  mushrooms: 3300,
+  rocks: 600,
+  reeds: 2600,
+  islands: 40,
+  arches: 26,
+  growths: 190,
+  spires: 260,
+};
+
 export const collision = {
-  playerRadius: 0.45,
+  playerRadius: 1.6,
   treeRadius: 0.55,
   rockRadius: 0.7,
 };
@@ -54,9 +83,7 @@ export const audio = {
   cutoffDry: 400, cutoffWet: 18000,
   smoothing: 0.6, // seconds
 
-  // Endpoints measured with scripts/measure.mjs, not guessed. Wetness sits at 0.148
-  // standing still (your own blot, in equilibrium) and peaks near 0.245 walking.
-  // A naive 0..1 mapping would leave the mix pinned wide open the entire time.
-  wetnessDry: 0.14,
-  wetnessWet: 0.26,
+  // Recalibrated in step 6 once the drop mechanic changes what wetness looks like.
+  wetnessDry: 0.0,
+  wetnessWet: 0.12,
 };

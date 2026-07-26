@@ -1,15 +1,16 @@
 import * as THREE from 'three';
 import { createWorld } from './world.js';
-import { createGround } from './terrain.js';
-import { createControls } from './controls.js';
+import { createGround, heightAt } from './terrain.js';
+import { createFlight } from './flight.js';
 import { Colliders } from './collision.js';
 import { InkMap } from './ink/inkMap.js';
 import { applyInk, updateInkUniforms } from './ink/inkMaterial.js';
-import { rng } from './scatter.js';
+import { rng } from './random.js';
 import { createFlowers } from './props/flowers.js';
 import { createGrass } from './props/grass.js';
 import { createTrees } from './props/trees.js';
 import { createMushrooms, createReeds, createRocks } from './props/smallProps.js';
+import { createMoth } from './props/moth.js';
 import { createComposer } from './post/composer.js';
 import { Ambience } from './audio.js';
 import { density } from './config.js';
@@ -46,14 +47,17 @@ scene.add(
 
 const colliders = new Colliders([...trees.colliders, ...rocks.colliders]);
 
+const moth = createMoth();
+scene.add(moth.root);
+
 const overlay = document.getElementById('overlay');
 const hint = document.getElementById('hint');
 
 const ambience = new Ambience(camera);
 ambience.load().catch((e) => console.warn('[audio] could not load the ambient bed:', e.message));
 
-const { controls, update: updateControls, input } = createControls(camera, renderer.domElement, {
-  colliders,
+const flight = createFlight(camera, renderer.domElement, {
+  moth,
   onLock: () => {
     overlay.classList.add('hidden');
     hint.classList.remove('hidden');
@@ -67,10 +71,10 @@ const { controls, update: updateControls, input } = createControls(camera, rende
   onKey: (code) => {
     if (code === 'KeyM') hint.textContent = ambience.toggleMute()
       ? 'sound off · M to unmute'
-      : 'walk to spread the ink · it dries after a few seconds';
+      : 'click to drop pigment · W and S change speed';
   },
 });
-overlay.addEventListener('click', () => controls.lock());
+overlay.addEventListener('click', () => flight.lock());
 
 const timer = new THREE.Timer();
 timer.connect(document); // pauses on tab switch, so returning does not dump one huge dt
@@ -84,9 +88,10 @@ function frame() {
   debug?.begin();
   timer.update();
   const dt = Math.min(timer.getDelta(), 0.05);
+  const elapsed = timer.getElapsed();
 
-  updateControls(dt);
-  if (!api.freeze) inkMap.update(camera.position.x, camera.position.z, dt, timer.getElapsed());
+  flight.update(dt, elapsed);
+  if (!api.freeze) inkMap.update(flight.state.pos.x, flight.state.pos.z, dt, elapsed);
   updateInkUniforms(inkMap.texture);
 
   // Async readback, so this never stalls the pipeline. A few frames of latency is
@@ -100,7 +105,10 @@ function frame() {
 
 // Hooks for scripts/measure.mjs. `freeze` lets the harness wipe the ink and confirm
 // the world really does disappear, without the loop immediately re-inking underfoot.
-const api = { renderer, scene, camera, inkMap, colliders, input, post, ambience, freeze: false };
+const api = {
+  renderer, scene, camera, inkMap, colliders, post, ambience, moth, flight,
+  input: flight.input, heightAt, freeze: false,
+};
 globalThis.__inkGarden = api;
 
 frame();

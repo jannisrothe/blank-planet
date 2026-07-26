@@ -209,17 +209,21 @@ async function main() {
   if (WALK) {
     // Constant yaw, so the player walks a circle of roughly 40 units instead of
     // sprinting into the world edge and staring at empty space for half the run.
+    // The moth always drifts forward, so the harness only has to steer. A constant
+    // turn keeps it circling inside the world instead of pinning to the edge.
     await page.evaluate(async (seconds) => {
       const g = globalThis.__inkGarden;
-      g.input.forward = 1;
+      g.input.turn = 0.22;
       const t0 = performance.now();
       window.__wet = [];
+      window.__alt = [];
       while (performance.now() - t0 < seconds * 1000) {
         await new Promise((r) => requestAnimationFrame(r));
-        g.camera.rotateY(-0.006);
         window.__wet.push(g.inkMap.wetness);
+        const p = g.flight.state.pos;
+        window.__alt.push(p.y - g.heightAt(p.x, p.z));
       }
-      g.input.forward = 0;
+      g.input.turn = 0;
     }, SECONDS);
   } else {
     await page.evaluate(async (seconds) => {
@@ -273,36 +277,12 @@ async function main() {
     await page.evaluate(() => { globalThis.__inkGarden.freeze = false; });
   }
 
-  // Collision: aim the player at the nearest tree and walk into it. If the trunk is
-  // solid the distance bottoms out at the collider radius and never goes below it.
-  let collide = null;
-  if (!uncapped && (await page.evaluate(() => !!globalThis.__inkGarden?.colliders))) {
-    collide = await page.evaluate(async () => {
-      const g = globalThis.__inkGarden;
-      const p = g.camera.position;
-      // nearest collider that is not directly underfoot
-      let best = null;
-      for (const bucket of g.colliders.grid.values()) {
-        for (const c of bucket) {
-          const d = Math.hypot(c.x - p.x, c.z - p.z);
-          // far enough to require a real approach, near enough to reach in 4s
-          if (d > 6 && d < 30 && (!best || d < best.d)) best = { c, d };
-        }
-      }
-      if (!best) return null;
-      g.camera.lookAt(best.c.x, p.y, best.c.z);
-      g.input.forward = 1;
-
-      let min = Infinity;
-      const t0 = performance.now();
-      while (performance.now() - t0 < 4000) {
-        await new Promise((r) => requestAnimationFrame(r));
-        min = Math.min(min, Math.hypot(g.camera.position.x - best.c.x, g.camera.position.z - best.c.z));
-      }
-      g.input.forward = 0;
-      return { radius: best.c.r, closest: min, start: best.d };
-    });
-  }
+  // Flight: the moth must never clip through the land it is flying over.
+  const alt = await page.evaluate(() => {
+    const a = window.__alt ?? [];
+    if (!a.length) return null;
+    return { min: Math.min(...a), max: Math.max(...a), samples: a.length };
+  });
 
   // Audio: the bed must actually be running, and the ink must actually move the mix.
   let sound = null;
@@ -335,14 +315,9 @@ async function main() {
   if (Number.isFinite(whiteIdle)) {
     console.log(`  white pixels ${(whiteIdle * 100).toFixed(1)}% before entering -> ${(whiteWalk * 100).toFixed(1)}% while walking`);
   }
-  if (collide) {
-    const floor = collide.radius + 0.45; // collider radius + player radius
-    // A run that never got near the trunk proves nothing, so say so rather than pass.
-    const reached = collide.start - collide.closest > 0.3;
-    const pass = reached && collide.closest >= floor - 0.05;
-    const verdict = !reached ? 'INCONCLUSIVE (never reached the tree)'
-      : pass ? 'PASS' : 'FAIL (walked through)';
-    console.log(`  collision    approached from ${collide.start.toFixed(1)} to ${collide.closest.toFixed(2)}, floor ${floor.toFixed(2)}  ${verdict}`);
+  if (alt) {
+    const pass = alt.min > 0;
+    console.log(`  clearance    above terrain: min ${alt.min.toFixed(1)} max ${alt.max.toFixed(1)} over ${alt.samples} frames  ${pass ? 'PASS' : 'FAIL (clipped through)'}`);
   }
   if (wet) {
     console.log(`  wetness      min ${wet.min.toFixed(3)}  median ${wet.med.toFixed(3)}  max ${wet.max.toFixed(3)}  (drives the audio mix)`);
