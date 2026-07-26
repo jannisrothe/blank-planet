@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Ink Garden World</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #ffffff; height: 100%; width: 100%; font-family: -apple-system, sans-serif; }
+  canvas { display: block; }
+  #overlay {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: rgba(255,255,255,0.9); cursor: pointer; z-index: 10; text-align: center;
+  }
+  #overlay h1 { font-size: 20px; font-weight: 500; color: #333; margin: 0 0 8px; }
+  #overlay p { font-size: 13px; color: #888; margin: 0; }
+  #hint {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    font-size: 12px; color: #aaa; pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<div id="overlay">
+  <div>
+    <h1>click to enter the garden</h1>
+    <p>WASD to walk · mouse to look · esc to exit</p>
+  </div>
+</div>
+<div id="hint" style="display:none">walk to reveal color · it fades after a few seconds</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from "three";
+import { PointerLockControls } from "three/addons/controls/PointerLockControls.js";
+
+// ---------------- basic setup ----------------
+const WORLD_SIZE = 220;          // world is WORLD_SIZE x WORLD_SIZE units
+const REVEAL_RADIUS = 9;         // world units around the player that reveal color
+const FADE_SECONDS = 2.5;        // how long color lingers after leaving an area
+const WALK_SPEED = 14;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xffffff);
+scene.fog = new THREE.Fog(0xffffff, 25, 90); // distant world fades to white, hides world edge
+
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 200);
+camera.position.set(0, 1.7, 0);
+
+const ambient = new THREE.HemisphereLight(0xffffff, 0xcccccc, 1.1);
+scene.add(ambient);
+const sun = new THREE.DirectionalLight(0xffffff, 0.6);
+sun.position.set(20, 30, 10);
+scene.add(sun);
+
+// ---------------- ground (gentle rolling terrain) ----------------
+const groundGeo = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, 120, 120);
+groundGeo.rotateX(-Math.PI / 2);
+const posAttr = groundGeo.attributes.position;
+for (let i = 0; i < posAttr.count; i++) {
+  const x = posAttr.getX(i), z = posAttr.getZ(i);
+  const y = Math.sin(x * 0.05) * 0.6 + Math.cos(z * 0.06) * 0.6;
+  posAttr.setY(i, y);
+}
+groundGeo.computeVertexNormals();
+
+// ground color texture, drawn once (procedural grass base, no external assets)
+const TEX_SIZE = 1024;
+const gCanvas = document.createElement("canvas");
+gCanvas.width = gCanvas.height = TEX_SIZE;
+const gctx = gCanvas.getContext("2d");
+const grad = gctx.createLinearGradient(0, 0, TEX_SIZE, TEX_SIZE);
+grad.addColorStop(0, "#a9d18e");
+grad.addColorStop(1, "#7fb768");
+gctx.fillStyle = grad;
+gctx.fillRect(0, 0, TEX_SIZE, TEX_SIZE);
+gctx.strokeStyle = "rgba(60,110,50,0.25)";
+for (let i = 0; i < 4000; i++) {
+  const x = Math.random() * TEX_SIZE, y = Math.random() * TEX_SIZE, h = 4 + Math.random() * 8;
+  gctx.beginPath();
+  gctx.moveTo(x, y);
+  gctx.lineTo(x + (Math.random() - 0.5) * 4, y - h);
+  gctx.stroke();
+}
+const groundColorTex = new THREE.CanvasTexture(gCanvas);
+groundColorTex.wrapS = groundColorTex.wrapT = THREE.RepeatWrapping;
+
+const groundMat = new THREE.MeshStandardMaterial({ map: groundColorTex, roughness: 1 });
+const ground = new THREE.Mesh(groundGeo, groundMat);
+scene.add(ground);
+
+// fog-of-color mask: starts fully white/opaque, punched clear near the player,
+// slowly regrows (fades back to white) everywhere every frame
+const fogCanvas = document.createElement("canvas");
+fogCanvas.width = fogCanvas.height = TEX_SIZE;
+const fctx = fogCanvas.getContext("2d");
+fctx.fillStyle = "#ffffff";
+fctx.fillRect(0, 0, TEX_SIZE, TEX_SIZE);
+const fogTex = new THREE.CanvasTexture(fogCanvas);
+
+const fogMesh = new THREE.Mesh(
+  groundGeo.clone(),
+  new THREE.MeshBasicMaterial({ map: fogTex, transparent: true, depthWrite: false })
+);
+fogMesh.position.y += 0.02;
+scene.add(fogMesh);
+
+function worldToUV(x, z) {
+  return {
+    u: (x + WORLD_SIZE / 2) / WORLD_SIZE,
+    v: (z + WORLD_SIZE / 2) / WORLD_SIZE,
+  };
+}
+
+// ---------------- decorative objects (flowers = billboards, trees = simple 3D shapes) ----------------
+function heightAt(x, z) {
+  return Math.sin(x * 0.05) * 0.6 + Math.cos(z * 0.06) * 0.6;
+}
+
+// a small flower sprite texture, drawn once
+const fCanvas = document.createElement("canvas");
+fCanvas.width = fCanvas.height = 64;
+const flctx = fCanvas.getContext("2d");
+const petalColors = ["#f76b8a", "#f7d154", "#c084fc", "#fca5a5", "#93c5fd"];
+const petalColor = petalColors[Math.floor(Math.random() * petalColors.length)];
+flctx.fillStyle = petalColor;
+for (let p = 0; p < 5; p++) {
+  const ang = (p / 5) * Math.PI * 2;
+  flctx.beginPath();
+  flctx.ellipse(32 + Math.cos(ang) * 12, 32 + Math.sin(ang) * 12, 11, 6, ang, 0, Math.PI * 2);
+  flctx.fill();
+}
+flctx.fillStyle = "#f4a94a";
+flctx.beginPath();
+flctx.arc(32, 32, 7, 0, Math.PI * 2);
+flctx.fill();
+const flowerTex = new THREE.CanvasTexture(fCanvas);
+
+const GRAY = new THREE.Color(0x999999);
+const FULL = new THREE.Color(0xffffff);
+const revealables = []; // { obj, revealedUntil }
+
+const FLOWER_COUNT = 500;
+for (let i = 0; i < FLOWER_COUNT; i++) {
+  const x = (Math.random() - 0.5) * WORLD_SIZE * 0.95;
+  const z = (Math.random() - 0.5) * WORLD_SIZE * 0.95;
+  const mat = new THREE.SpriteMaterial({ map: flowerTex, color: GRAY.clone() });
+  const sprite = new THREE.Sprite(mat);
+  const scale = 0.8 + Math.random() * 0.6;
+  sprite.scale.set(scale, scale, scale);
+  sprite.position.set(x, heightAt(x, z) + scale * 0.4, z);
+  scene.add(sprite);
+  revealables.push({ obj: sprite, revealedUntil: 0 });
+}
+
+function makeTree() {
+  const group = new THREE.Group();
+  const trunk = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.15, 0.22, 1.6, 6),
+    new THREE.MeshStandardMaterial({ color: GRAY.clone() })
+  );
+  trunk.position.y = 0.8;
+  const leaves = new THREE.Mesh(
+    new THREE.ConeGeometry(1.1, 2.2, 8),
+    new THREE.MeshStandardMaterial({ color: GRAY.clone() })
+  );
+  leaves.position.y = 2.2;
+  group.add(trunk, leaves);
+  group.userData.materials = [trunk.material, leaves.material];
+  group.userData.trueColors = [new THREE.Color(0x8a5a34), new THREE.Color(0x3f7a3a)];
+  return group;
+}
+
+const TREE_COUNT = 60;
+for (let i = 0; i < TREE_COUNT; i++) {
+  const x = (Math.random() - 0.5) * WORLD_SIZE * 0.9;
+  const z = (Math.random() - 0.5) * WORLD_SIZE * 0.9;
+  const tree = makeTree();
+  tree.position.set(x, heightAt(x, z), z);
+  scene.add(tree);
+  revealables.push({ obj: tree, revealedUntil: 0, isTree: true });
+}
+
+// ---------------- controls: pointer-lock first person walk ----------------
+const controls = new PointerLockControls(camera, renderer.domElement);
+const overlay = document.getElementById("overlay");
+const hint = document.getElementById("hint");
+
+overlay.addEventListener("click", () => controls.lock());
+controls.addEventListener("lock", () => { overlay.style.display = "none"; hint.style.display = "block"; });
+controls.addEventListener("unlock", () => { overlay.style.display = "flex"; hint.style.display = "none"; });
+
+const keys = {};
+window.addEventListener("keydown", (e) => keys[e.code] = true);
+window.addEventListener("keyup", (e) => keys[e.code] = false);
+
+window.addEventListener("resize", () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ---------------- main loop ----------------
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const now = performance.now();
+
+  // movement
+  if (controls.isLocked) {
+    const forward = (keys["KeyW"] ? 1 : 0) - (keys["KeyS"] ? 1 : 0);
+    const right = (keys["KeyD"] ? 1 : 0) - (keys["KeyA"] ? 1 : 0);
+    controls.moveForward(forward * WALK_SPEED * dt);
+    controls.moveRight(right * WALK_SPEED * dt);
+
+    // clamp inside world bounds
+    const half = WORLD_SIZE / 2 - 3;
+    camera.position.x = Math.max(-half, Math.min(half, camera.position.x));
+    camera.position.z = Math.max(-half, Math.min(half, camera.position.z));
+    camera.position.y = heightAt(camera.position.x, camera.position.z) + 1.7;
+  }
+
+  // ground reveal: regrow fog everywhere, then punch a hole under the player
+  const regrowAlpha = 1 - Math.pow(0.02, dt / FADE_SECONDS);
+  fctx.fillStyle = `rgba(255,255,255,${regrowAlpha})`;
+  fctx.fillRect(0, 0, TEX_SIZE, TEX_SIZE);
+
+  const { u, v } = worldToUV(camera.position.x, camera.position.z);
+  const px = u * TEX_SIZE, py = (1 - v) * TEX_SIZE;
+  const pr = (REVEAL_RADIUS / WORLD_SIZE) * TEX_SIZE;
+  const holeGrad = fctx.createRadialGradient(px, py, 0, px, py, pr);
+  holeGrad.addColorStop(0, "rgba(0,0,0,0.9)");
+  holeGrad.addColorStop(1, "rgba(0,0,0,0)");
+  fctx.globalCompositeOperation = "destination-out";
+  fctx.fillStyle = holeGrad;
+  fctx.beginPath();
+  fctx.arc(px, py, pr, 0, Math.PI * 2);
+  fctx.fill();
+  fctx.globalCompositeOperation = "source-over";
+  fogTex.needsUpdate = true;
+
+  // object reveal: color in near player, fades back to gray a few seconds after leaving
+  for (const r of revealables) {
+    const dx = r.obj.position.x - camera.position.x;
+    const dz = r.obj.position.z - camera.position.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    if (dist < REVEAL_RADIUS) r.revealedUntil = now + FADE_SECONDS * 1000;
+    const amount = Math.max(0, Math.min(1, (r.revealedUntil - now) / (FADE_SECONDS * 1000)));
+
+    if (r.isTree) {
+      const mats = r.obj.userData.materials;
+      const trueColors = r.obj.userData.trueColors;
+      mats[0].color.copy(GRAY).lerp(trueColors[0], amount);
+      mats[1].color.copy(GRAY).lerp(trueColors[1], amount);
+    } else {
+      r.obj.material.color.copy(GRAY).lerp(FULL, amount);
+    }
+  }
+
+  renderer.render(scene, camera);
+}
+animate();
+</script>
+</body>
+</html>
