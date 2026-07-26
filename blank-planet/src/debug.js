@@ -38,6 +38,10 @@ export function createDebug({ post: postFx, paint, ambience }) {
     .onChange((x) => { u('uGrain').value = x; });
   fPaper.add({ v: post.outline }, 'v', 0, 1, 0.01).name('ink outline')
     .onChange((x) => { u('uOutline').value = x; });
+  fPaper.add({ v: post.contour }, 'v', 0, 1, 0.01).name('contour (depth)')
+    .onChange((x) => { u('uContour').value = x; });
+  fPaper.add({ v: post.contourWidth }, 'v', 0.5, 4, 0.1).name('contour width')
+    .onChange((x) => { u('uContourWidth').value = x; });
   fPaper.add({ v: post.vignette }, 'v', 0, 1, 0.01).name('vignette')
     .onChange((x) => { u('uVignette').value = x; });
   fPaper.add({ v: post.fibre }, 'v', 0, 8, 0.1).name('paper fibre')

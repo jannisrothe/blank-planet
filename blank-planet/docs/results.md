@@ -82,6 +82,53 @@ down to 9,700) left p50 at exactly 30.0 fps, so the counts were restored. Adding
 lifeform layers on top also left it at 30.0. The cost is in fragments, so it lives in the
 post pass or the render scale, and neither has been touched yet.
 
+## v4 (contours, spatter, and the splat quad)
+
+The premise changed here. "With no pigment down you cannot see the world at all" was true
+and was the point, but at a 200-unit cruise over white ground it also meant you could not
+tell you were moving or which way the moth was facing. The world is now drawn in grey
+contour and still carries no colour until you paint it.
+
+That could not come from the existing outline, which is a luminance gradient: every
+surface is the same white, so it had nothing to find. The contour samples the depth
+buffer instead (`EffectAttribute.DEPTH`, then a four-tap difference on view Z, divided by
+distance so a line is the same weight near and far).
+
+The gate had to be reformulated rather than deleted, since the old one now fails by
+design:
+
+| Gate | Result |
+|---|---|
+| No pigment | 0.00% of pixels carry colour with the ink wiped |
+| Contours | 5.12% of pixels are line work |
+
+Chroma, not brightness. Grey line work passes, a surviving splat does not.
+
+### The splat quad
+
+Turning the spatter on (`satellites` 0 → 0.5) cost p95 57.1 → 16.9 fps. Measured, not
+guessed: contour alone cost 57.1 → 48.5, spatter alone 57.1 → 16.9.
+
+The cause was not the spatter. `PaintMap` rendered a full-screen −1..1 quad for every
+stamp, so the fragment shader ran over all 4.2 million texels of the map and discarded
+the 99.9% that missed. That was survivable while the shape discarded at 2.6 radii; wider
+spatter pushes the bound to 5.8 and the surviving area up with it. The quad is now sized
+to the splat's own bounding box, which fixes the cost for every splat, spatter or not:
+
+| | p95 |
+|---|---|
+| No contour, no spatter | 57.1 fps |
+| Contour only | 48.5 fps |
+| Spatter only, full-screen quad | 16.9 fps |
+| Both, quad sized to the splat | **56.8 fps** |
+
+### W and S
+
+They were never broken. Measured on the real keyboard path: 16 → 30.2 holding W for two
+seconds, → 9.1 holding S for three. What was missing was any way to perceive it, over a
+world with no visible features and no readout. The contour supplies the first and the
+hint line now carries the speed.
+
 ## Bugs that produced confident, wrong output
 
 Each of these looked fine until something was measured or rendered side by side.

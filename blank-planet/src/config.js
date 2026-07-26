@@ -52,7 +52,7 @@ export const paint = {
   resolution: 2048,    // texels across the world: 0.31 world units each
   radius: 18,          // splat radius in world units; scaling this with the altitude to 30
                        // filled the frame with one click, so it stays small on purpose
-  satellites: 0.0,     // spatter droplets, off: the splats should read round and clean
+  satellites: 0.5,     // spatter droplets thrown clear of the splat, biased downrange
   spikes: 0.0,         // radial fingers, off for the same reason
   wobble: 0.16,        // gentle out-of-round, so a splat is organic but never jagged
   edgeSoftness: 0.035, // crisp but smooth; not feathered, not aliased
@@ -78,6 +78,11 @@ export const post = {
   grain: 0.03,      // canvas texture strength
   grainScale: 900,
   outline: 0.0,     // off: an outline is an edge, and edges are what we are removing
+  // The contour is a different thing from that outline. It comes from the depth buffer,
+  // so it draws silhouettes on a world that is white on white and otherwise impossible
+  // to read. Without it you cannot tell you are moving, or which way the moth is facing.
+  contour: 0.55,
+  contourWidth: 1.0, // in pixels
   vignette: 0.38,   // falls off to white, like the edge of the canvas
   fibre: 0.5,       // keep sampling almost straight, so curves stay curves
 };

@@ -97,6 +97,18 @@ splat at the foot of a spire should run up it.
 filter, an outline from the luminance gradient, screen-locked canvas grain, and a
 vignette that falls off to white.
 
+It also draws the **contour**, which is what makes an unpainted planet something you can
+look at. A luminance outline cannot do this: with no pigment down, every surface is the
+same white and the gradient is flat everywhere. The contour reads the depth buffer
+instead and draws the silhouettes, so the world arrives as grey line work carrying no
+colour at all until you throw paint at it. Turn it off with the `contour` slider under
+`?debug` and the planet goes back to being genuinely invisible.
+
+The splat quad is sized to the splat's own bounding box. It used to be a full-screen
+−1..1 plane, so every stamp ran the fragment shader over all 4.2 million texels of the
+map to keep a few thousand. That was survivable while the shape was a plain disc; the
+spatter reaches out to 5.8 radii and made it cost 45 ms frames.
+
 ## Layout
 
 ```

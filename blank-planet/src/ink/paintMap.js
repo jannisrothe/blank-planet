@@ -14,11 +14,27 @@ import { WORLD_SIZE, paint as cfg } from '../config.js';
  * vivid however many times you paint over the same ground.
  */
 
+/**
+ * The quad covers only the splat's own bounding box, not the whole map.
+ *
+ * It used to be a full-screen -1..1 plane, so every stamp ran the fragment shader over
+ * all 4.2 million texels and threw away the 99.9% that missed. Harmless while the shape
+ * was a bare disc that discarded at 2.6 radii. Turning the spatter on widened the
+ * surviving area enough to cost 45ms frames, which is what made this worth doing: the
+ * saving applies to every splat, spatter or not.
+ *
+ * `position.xy` is the -1..1 plane, mapped onto a box of half-size uRadius * uBound
+ * around the impact. vUv comes out as map uv directly, so the fragment shader is
+ * unchanged by any of this.
+ */
 const VERT = /* glsl */`
+uniform vec2 uCenter;
+uniform float uRadius;
+uniform float uBound;
 varying vec2 vUv;
 void main() {
-  vUv = uv;
-  gl_Position = vec4(position.xy, 0.0, 1.0);
+  vUv = uCenter + position.xy * (uRadius * uBound);
+  gl_Position = vec4(vUv * 2.0 - 1.0, 0.0, 1.0);
 }
 `;
 
@@ -35,6 +51,7 @@ uniform float uSpikes;
 uniform float uEdge;       // 0 = razor sharp, higher = softer
 uniform float uTooth;      // canvas texture breaking up the coverage
 uniform float uWobble;     // how far out of round the blob is allowed to go
+uniform float uBound;      // how far out the shape can reach, in radii
 
 varying vec2 vUv;
 
@@ -57,7 +74,9 @@ void main() {
   // Work in units of the splat radius, so the shape is scale independent.
   vec2 p = (vUv - uCenter) / uRadius;
   float r = length(p);
-  if (r > 2.6) discard;
+  // Same bound the quad was sized to. It has to clear the spatter, not just the core,
+  // or the far droplets are cut off and the splat looks round again.
+  if (r > uBound) discard;
 
   float ang = atan(p.y, p.x);
 
@@ -139,6 +158,7 @@ export class PaintMap {
       uEdge: { value: cfg.edgeSoftness },
       uTooth: { value: cfg.tooth },
       uWobble: { value: cfg.wobble },
+      uBound: { value: 2.6 },
     };
 
     this.material = new THREE.ShaderMaterial({
@@ -204,6 +224,9 @@ export class PaintMap {
     this.uniforms.uEdge.value = cfg.edgeSoftness;
     this.uniforms.uTooth.value = cfg.tooth;
     this.uniforms.uWobble.value = cfg.wobble;
+    // Furthest a satellite or spike can land, from the constants in the loops above,
+    // plus a little slack for the droplet's own radius and the soft edge.
+    this.uniforms.uBound.value = 2.6 + cfg.satellites * 6.4 + cfg.spikes * 3.0;
     this._sampleUv.copy(this.uniforms.uCenter.value);
 
     const prevTarget = this.renderer.getRenderTarget();

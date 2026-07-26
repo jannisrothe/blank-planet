@@ -121,7 +121,7 @@ const PROBE = () => {
 async function whiteness(page, skip) {
   // Playwright waits for a stable compositor frame, which never arrives with
   // vsync disabled. Perf runs skip the pixel check; visual gates run capped.
-  if (skip) return NaN;
+  if (skip) return { white: NaN, coloured: NaN };
   const b64 = (await page.screenshot({ type: 'png' })).toString('base64');
   return page.evaluate(async (data) => {
     const img = new Image();
@@ -134,10 +134,16 @@ async function whiteness(page, skip) {
     ctx.drawImage(img, 0, 0, w, h);
     const d = ctx.getImageData(0, 0, w, h).data;
     let white = 0;
+    let coloured = 0;
     for (let i = 0; i < d.length; i += 4) {
-      if (d[i] > 248 && d[i + 1] > 248 && d[i + 2] > 248) white++;
+      const r = d[i], g = d[i + 1], b = d[i + 2];
+      if (r > 248 && g > 248 && b > 248) white++;
+      // Chroma, not brightness. The contour pass draws the world in grey line, so an
+      // unpainted planet is no longer a blank sheet -- but it must still carry no
+      // pigment, and grey has none.
+      else if (Math.max(r, g, b) - Math.min(r, g, b) > 22) coloured++;
     }
-    return white / (w * h);
+    return { white: white / (w * h), coloured: coloured / (w * h) };
   }, b64);
 }
 
@@ -183,7 +189,7 @@ async function main() {
   await page.goto(url, { waitUntil: 'load' });
   await page.waitForTimeout(2500); // let textures build and the first frames settle
 
-  const whiteIdle = await whiteness(page, uncapped);
+  const whiteIdle = (await whiteness(page, uncapped)).white;
 
   // A trusted click on the overlay grants pointer lock and unblocks audio.
   // bringToFront() matters: without focus Chrome rejects the lock request.
@@ -242,7 +248,7 @@ async function main() {
     if (!w.length) return null;
     return { min: w[0], med: w[(w.length / 2) | 0], max: w[w.length - 1] };
   });
-  const whiteWalk = await whiteness(page, uncapped);
+  const whiteWalk = (await whiteness(page, uncapped)).white;
 
   // Shot goes here, right after the walk: later steps unlock the pointer, which
   // brings the entry overlay back and washes the whole frame out.
@@ -275,7 +281,7 @@ async function main() {
 
   // The core promise: with no ink on the paper you cannot see the world at all.
   // Wiping the mask and looking at the same view is a direct test of that.
-  let whiteBlank = NaN;
+  let blank = null;
   if (!uncapped && (await page.evaluate(() => !!globalThis.__blankPlanet))) {
     // Let anything still falling land first. Hiding a droplet mid-flight races with the
     // screenshot, and a single airborne blob is enough to fail this gate.
@@ -304,10 +310,10 @@ async function main() {
       }
     });
     await page.waitForTimeout(400);
-    whiteBlank = await whiteness(page, false);
+    blank = await whiteness(page, false);
     // Save the frame when it fails: "something is still visible" is not actionable
     // without seeing what.
-    if (whiteBlank <= 0.99) {
+    if (blank.coloured > 0.002) {
       await page.screenshot({ path: 'docs/_blankfail.png' });
       const why = await page.evaluate(() => {
         const g = globalThis.__blankPlanet;
@@ -502,9 +508,14 @@ async function main() {
     console.log(`  air: no bleed ${air.bledFromGround} airborne instances painted by ground splats  ${noBleed ? 'PASS' : 'FAIL (the XZ map is reaching the sky)'}`);
     console.log(`  air: hittable drop aimed at r=${air.targetRadius} target painted ${air.painted}, ${air.stillFalling} still falling  ${hit ? 'PASS' : 'FAIL (drop passed through it)'}`);
   }
-  if (Number.isFinite(whiteBlank)) {
-    const pass = whiteBlank > 0.99;
-    console.log(`  blank paper  ${(whiteBlank * 100).toFixed(2)}% white with the ink wiped  ${pass ? 'PASS' : 'FAIL (world still visible)'}`);
+  if (blank && Number.isFinite(blank.coloured)) {
+    // The premise moved. It used to be "with the ink wiped the frame is pure white",
+    // which the contour pass now breaks on purpose: the planet is drawn in grey line so
+    // you can tell you are moving. What has to hold is that none of it carries pigment.
+    const clean = blank.coloured <= 0.002;
+    const drawn = blank.white < 0.995;
+    console.log(`  no pigment   ${(blank.coloured * 100).toFixed(2)}% of pixels carry colour with the ink wiped  ${clean ? 'PASS' : 'FAIL (pigment survived the wipe)'}`);
+    console.log(`  contours     ${((1 - blank.white) * 100).toFixed(2)}% of pixels are line work  ${drawn ? 'PASS' : 'FAIL (unpainted world is invisible)'}`);
   }
   console.log(`  console errs ${errors.length}${errors.length ? '\n    ' + errors.slice(0, 5).join('\n    ') : ''}\n`);
 

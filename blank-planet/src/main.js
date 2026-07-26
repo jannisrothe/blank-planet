@@ -75,6 +75,17 @@ scene.add(moth.root);
 const overlay = document.getElementById('overlay');
 const hint = document.getElementById('hint');
 
+// W and S have always worked, but over a world with nothing to gauge motion against
+// there was no way to tell. The number is the confirmation.
+let hintBase = hint.textContent;
+let shownSpeed = -1;
+function showSpeed(speed) {
+  const s = Math.round(speed);
+  if (s === shownSpeed) return;
+  shownSpeed = s;
+  hint.textContent = `${hintBase} · speed ${s}`;
+}
+
 const ambience = new Ambience(camera);
 ambience.load().catch((e) => console.warn('[audio] could not load the ambient bed:', e.message));
 
@@ -129,9 +140,12 @@ const flight = createFlight(camera, renderer.domElement, {
     ambience.stop();
   },
   onKey: (code) => {
-    if (code === 'KeyM') hint.textContent = ambience.toggleMute()
-      ? 'sound off · M to unmute'
-      : 'click to drop pigment · it bleeds, dries, and stays';
+    if (code === 'KeyM') {
+      hintBase = ambience.toggleMute()
+        ? 'sound off · M to unmute'
+        : 'click to throw paint · it covers and it stays';
+      shownSpeed = -1; // force the readout to redraw against the new text
+    }
   },
 });
 overlay.addEventListener('click', () => {
@@ -156,6 +170,7 @@ function frame() {
   const elapsed = timer.getElapsed();
 
   flight.update(dt, elapsed);
+  showSpeed(flight.state.speed);
   life.update(elapsed);
   droplets.update(dt);
   updateInkUniforms(paint.texture);

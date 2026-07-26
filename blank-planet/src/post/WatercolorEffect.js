@@ -1,4 +1,4 @@
-import { Effect } from 'postprocessing';
+import { Effect, EffectAttribute } from 'postprocessing';
 import { Uniform } from 'three';
 
 /**
@@ -21,6 +21,8 @@ uniform float uRadius;
 uniform float uGrain;
 uniform float uGrainScale;
 uniform float uOutline;
+uniform float uContour;
+uniform float uContourWidth;
 uniform float uVignette;
 uniform float uFibre;
 
@@ -39,7 +41,7 @@ float fbm(vec2 p) {
   return v;
 }
 
-void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
+void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth, out vec4 outputColor) {
   // Paper fibre: nudge the sampling point so edges wobble the way pigment does when
   // it follows the grain of the sheet.
   vec2 warp = vec2(fbm(uv * 180.0), fbm(uv * 180.0 + 41.0)) - 0.5;
@@ -86,6 +88,23 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
   float edge = clamp(length(vec2(lc - lx, lc - ly)) * 6.0, 0.0, 1.0);
   best *= 1.0 - edge * uOutline;
 
+  // Contour from depth, not from luminance. On an unpainted planet every surface is the
+  // same white, so the gradient above finds nothing at all and the world is not merely
+  // colourless, it is genuinely not there to look at. Sampling the depth buffer instead
+  // draws the silhouettes: the horizon, the rim of an island, the shape of a creature.
+  if (uContour > 0.001) {
+    vec2 c = texelSize * uContourWidth;
+    float z0 = getViewZ(readDepth(uv));
+    float gx = abs(z0 - getViewZ(readDepth(uv + vec2(c.x, 0.0))))
+             + abs(z0 - getViewZ(readDepth(uv - vec2(c.x, 0.0))));
+    float gy = abs(z0 - getViewZ(readDepth(uv + vec2(0.0, c.y))))
+             + abs(z0 - getViewZ(readDepth(uv - vec2(0.0, c.y))));
+    // Relative to the distance, or a line is a slab in the foreground and invisible at
+    // the far end of a 900-unit world.
+    float g = (gx + gy) / max(abs(z0), 1.0);
+    best *= 1.0 - smoothstep(0.012, 0.09, g) * uContour;
+  }
+
   // Paper. Screen-locked on purpose: the sheet does not move when the camera does.
   float grain = fbm(uv * uGrainScale) * 0.6 + fbm(uv * uGrainScale * 3.7) * 0.4;
   best *= 1.0 - (grain - 0.5) * uGrain;
@@ -99,13 +118,19 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
 
 export class WatercolorEffect extends Effect {
   constructor({ radius = 3, grain = 0.09, grainScale = 900, outline = 0.28,
+                contour = 0.55, contourWidth = 1.0,
                 vignette = 0.5, fibre = 2.2 } = {}) {
     super('WatercolorEffect', fragment, {
+      // The contour reads the depth buffer, which postprocessing only attaches, and only
+      // defines readDepth/getViewZ for, when the effect declares it needs depth.
+      attributes: EffectAttribute.DEPTH,
       uniforms: new Map([
         ['uRadius', new Uniform(radius)],
         ['uGrain', new Uniform(grain)],
         ['uGrainScale', new Uniform(grainScale)],
         ['uOutline', new Uniform(outline)],
+        ['uContour', new Uniform(contour)],
+        ['uContourWidth', new Uniform(contourWidth)],
         ['uVignette', new Uniform(vignette)],
         ['uFibre', new Uniform(fibre)],
       ]),

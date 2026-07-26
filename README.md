@@ -1,11 +1,11 @@
 # blank planet
 
-A blank white page with an alien planet hidden inside it. You drift over it as a moth and
-throw blobs of wet oil paint. Each one falls, lands, and stamps a splat that reveals
-whatever was underneath. Paint covers what came before and never fades, so a session
-accumulates into something you made.
+An alien planet drawn in faint grey line, holding no colour at all. You drift over it as
+a moth and throw blobs of wet oil paint. Each one falls under gravity and stamps a splat
+with spatter thrown clear of it, and whatever it lands on takes that colour. Paint covers
+what came before and never fades, so a session accumulates into something you made.
 
-Flying alone reveals nothing.
+Flying alone colours nothing.
 
 ## Where things are
 
