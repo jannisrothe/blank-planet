@@ -17,18 +17,19 @@ export const terrain = {
 };
 
 export const flight = {
-  driftSpeed: 17,      // faster than the small world's 9: this one is three times wider
-  minSpeed: 6,
-  maxSpeed: 46,
-  trimRate: 16,        // how fast W/S change speed
-  turnRate: 0.0016,    // radians per pixel of mouse movement
-  maxPitch: 0.85,      // radians, keeps you from looping over the top
-  smoothing: 3.2,      // higher is snappier; low values feel like heavy drifting
-  groundClearance: 6,  // never fly closer than this to the terrain
-  ceiling: 150,
+  driftSpeed: 6,        // a slow drift; you are surveying, not commuting
+  minSpeed: 2,
+  maxSpeed: 18,
+  trimRate: 7,          // how fast W/S change speed
+  turnRate: 0.0016,     // radians per pixel of mouse movement
+  maxPitch: 0.85,       // radians, keeps you from looping over the top
+  smoothing: 2.4,       // higher is snappier; low values feel like heavy drifting
+  spawnAltitude: 150,   // high above the planet, not skimming it
+  groundClearance: 60,  // never descend closer than this to the terrain
+  ceiling: 320,
   // Chase camera, in the moth's local frame.
-  camBack: 8.5,
-  camUp: 4.4,
+  camBack: 9.5,
+  camUp: 4.6,
   camLag: 4.0,
 };
 
@@ -36,11 +37,12 @@ export const flight = {
 // of the capillary, advection and drying machinery exists any more.
 export const paint = {
   resolution: 2048,    // texels across the world: 0.31 world units each
-  radius: 7,           // splat radius in world units, before spikes and satellites
-  satellites: 1.0,     // how far the flung droplets land from the main blob
-  spikes: 1.0,         // length of the radial fingers
-  edgeSoftness: 0.06,  // 0 is a razor edge; oil barely feathers at all
-  tooth: 0.45,         // canvas weave breaking up the thinnest coverage
+  radius: 16,          // splat radius in world units; larger, since you fly much higher
+  satellites: 0.0,     // spatter droplets, off: the splats should read round and clean
+  spikes: 0.0,         // radial fingers, off for the same reason
+  wobble: 0.16,        // gentle out-of-round, so a splat is organic but never jagged
+  edgeSoftness: 0.035, // crisp but smooth; not feathered, not aliased
+  tooth: 0.0,          // canvas weave, off: it broke the edge into speckle
 
   // How the paint reads on the world.
   coverGamma: 0.72,    // <1 makes thin coverage show up sooner
@@ -51,19 +53,19 @@ export const paint = {
 
 export const droplet = {
   poolSize: 64,
-  size: 0.9,
-  gravity: 26,
-  stretch: 0.05,       // how much speed elongates the falling blob
-  throwSpeed: 4,       // forward push on release, on top of the moth's own velocity
+  size: 2.2,           // bigger, so it stays readable falling from 150 units up
+  gravity: 46,         // roughly a 2.5s fall from cruising altitude
+  stretch: 0.03,       // how much speed elongates the falling blob
+  throwSpeed: 3,       // forward push on release, on top of the moth's own velocity
 };
 
 export const post = {
-  radius: 3,        // Kuwahara kernel radius in pixels; cost grows with the square
-  grain: 0.07,      // canvas texture strength
+  radius: 2,        // Kuwahara kernel radius in pixels; larger reads as faceted blocks
+  grain: 0.03,      // canvas texture strength
   grainScale: 900,
-  outline: 0.24,    // darkening along form boundaries
-  vignette: 0.42,   // falls off to white, like the edge of the canvas
-  fibre: 1.4,       // lower than the watercolour build: oil edges should stay crisp
+  outline: 0.0,     // off: an outline is an edge, and edges are what we are removing
+  vignette: 0.38,   // falls off to white, like the edge of the canvas
+  fibre: 0.5,       // keep sampling almost straight, so curves stay curves
 };
 
 // Spread over eight times the area. Counts are up, density per acre is down, which is

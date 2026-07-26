@@ -20,17 +20,19 @@ const mushroomCap = (ctx, S) => {
   }
 };
 
+/** Reeds with rounded tips, stroked rather than filled to a point. */
 const reed = (ctx, S) => {
   ctx.clearRect(0, 0, S, S);
-  ctx.fillStyle = '#ffffff';
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineCap = 'round';
+  ctx.lineWidth = 0.04 * S;
   for (let i = 0; i < 4; i++) {
     const x = (0.3 + i * 0.14) * S;
     const lean = (i - 1.5) * 0.09 * S;
     ctx.beginPath();
-    ctx.moveTo(x - 0.018 * S, S);
-    ctx.quadraticCurveTo(x + lean * 0.5, S * 0.4, x + lean, S * 0.06);
-    ctx.quadraticCurveTo(x + lean * 0.5, S * 0.4, x + 0.018 * S, S);
-    ctx.fill();
+    ctx.moveTo(x, S);
+    ctx.quadraticCurveTo(x + lean * 0.5, S * 0.4, x + lean, S * 0.08);
+    ctx.stroke();
   }
 };
 
@@ -50,12 +52,12 @@ export function createReeds(count, rand) {
   });
 }
 
-/** Low scattered stones. Solid geometry, and they block the player like trees do. */
+/** Low scattered stones. Smooth pebbles: a faceted rock is all edge. */
 export function createRocks(count, rand) {
   const spots = scatter(count, rand, 6, 5);
   const mesh = new THREE.InstancedMesh(
-    new THREE.DodecahedronGeometry(0.5, 0),
-    applyInk(new THREE.MeshLambertMaterial({ flatShading: true, toneMapped: false })),
+    new THREE.SphereGeometry(0.5, 18, 12),
+    applyInk(new THREE.MeshLambertMaterial({ toneMapped: false })),
     spots.length,
   );
 

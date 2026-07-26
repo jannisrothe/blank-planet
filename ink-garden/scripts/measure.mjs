@@ -277,12 +277,23 @@ async function main() {
   // Wiping the mask and looking at the same view is a direct test of that.
   let whiteBlank = NaN;
   if (!uncapped && (await page.evaluate(() => !!globalThis.__inkGarden))) {
+    // Let anything still falling land first. Hiding a droplet mid-flight races with the
+    // screenshot, and a single airborne blob is enough to fail this gate.
+    await page.evaluate(async () => {
+      const g = globalThis.__inkGarden;
+      const t0 = performance.now();
+      while (g.droplets?.live.length && performance.now() - t0 < 9000) {
+        await new Promise((r) => requestAnimationFrame(r));
+      }
+    });
     await page.evaluate(() => {
       const g = globalThis.__inkGarden;
       g.paint.clear();
       // The moth is deliberately never ink-washed, so it is always visible. This gate
       // is about whether the WORLD disappears, so the moth is not part of it.
       if (g.moth) g.moth.root.visible = false;
+      // droplets in flight are not world either; they are paint you have not landed yet
+      for (const d of g.droplets?.live ?? []) d.mesh.visible = false;
       // The debug panel and FPS meter are DOM, not world. Counting their pixels
       // would fail this gate for a reason that has nothing to do with the render.
       document.getElementById('overlay')?.classList.add('hidden');
@@ -294,6 +305,27 @@ async function main() {
     });
     await page.waitForTimeout(400);
     whiteBlank = await whiteness(page, false);
+    // Save the frame when it fails: "something is still visible" is not actionable
+    // without seeing what.
+    if (whiteBlank <= 0.99) {
+      await page.screenshot({ path: 'docs/_blankfail.png' });
+      const why = await page.evaluate(() => {
+        const g = globalThis.__inkGarden;
+        const visible = [];
+        g.scene.traverse((o) => {
+          if (o.isMesh && o.visible && o.parent?.visible !== false) {
+            visible.push(`${o.geometry?.type ?? '?'} @${o.position.toArray().map((v) => v.toFixed(0)).join(',')}`);
+          }
+        });
+        return {
+          mothVisible: g.moth.root.visible,
+          dropletsLive: g.droplets.live.length,
+          dropletsVisible: g.droplets.live.filter((d) => d.mesh.visible).length,
+          visibleMeshes: visible.slice(0, 8),
+        };
+      });
+      console.log('  blank debug ', JSON.stringify(why));
+    }
     await page.evaluate(() => {
       globalThis.__inkGarden.freeze = false;
       if (globalThis.__inkGarden.moth) globalThis.__inkGarden.moth.root.visible = true;
@@ -343,6 +375,12 @@ async function main() {
   if (!uncapped && (await page.evaluate(() => !!globalThis.__inkGarden?.droplets))) {
     fall = await page.evaluate(async () => {
       const g = globalThis.__inkGarden;
+      // Wait out anything still falling from the beauty-shot pass, or its landing is
+      // mistaken for this droplet stamping instantly.
+      const settle = performance.now();
+      while (g.droplets.live.length && performance.now() - settle < 8000) {
+        await new Promise((r) => requestAnimationFrame(r));
+      }
       const before = g.paint.splats;
       g.dropPigment();
       const airborneAfterAFrame = await new Promise((r) => requestAnimationFrame(() => r(g.droplets.live.length)));

@@ -70,7 +70,15 @@ ambience.load().catch((e) => console.warn('[audio] could not load the ambient be
 // Paint is thrown, not teleported: a droplet is released from the moth with its own
 // velocity, falls under gravity, and only stamps a splat when it actually lands. The
 // splat is thrown downrange along the impact direction, so it reads as a hit.
-const dropColor = new THREE.Color();
+// The moth carries its next colour visibly, so you know what you are about to throw
+// before you throw it. Picked ahead of time, shown on the sac, replaced after each shot.
+const nextColor = new THREE.Color();
+function loadNextColor() {
+  samplePigment(Math.random, nextColor);
+  moth.setNextColor(nextColor);
+}
+loadNextColor();
+
 const impactDir = new THREE.Vector2();
 
 const droplets = new Droplets(scene, (x, y, z, color, vel) => {
@@ -91,7 +99,8 @@ function dropPigment() {
     -2,
     -Math.cos(st.yaw) * (st.speed + dropCfg.throwSpeed),
   );
-  droplets.spawn(releasePos, releaseVel, samplePigment(Math.random, dropColor));
+  droplets.spawn(releasePos, releaseVel, nextColor);
+  loadNextColor();
 }
 
 const flight = createFlight(camera, renderer.domElement, {

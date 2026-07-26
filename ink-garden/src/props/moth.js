@@ -27,7 +27,7 @@ function wingGeometry(points) {
     shape.quadraticCurveTo((px + x) / 2 + (y - py) * 0.12, (py + y) / 2 - (x - px) * 0.12, x, y);
   }
   shape.closePath();
-  const geo = new THREE.ShapeGeometry(shape, 12);
+  const geo = new THREE.ShapeGeometry(shape, 28);
   geo.rotateX(-Math.PI / 2); // shapes are built in XY; the wing lies in the XZ plane
   return geo;
 }
@@ -85,11 +85,22 @@ export function createMoth() {
   });
   const bodyMat = new THREE.MeshLambertMaterial({ color: 0x2a2038 });
 
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.22, 1.0, 4, 8), bodyMat);
+  // The paint sac: a glowing bead slung under the abdomen, holding the colour the moth
+  // will throw next. Unlit, so it reads as the colour itself rather than a shaded object.
+  const sacMat = new THREE.MeshBasicMaterial({ toneMapped: false });
+  // Sits on the moth's back, because the chase camera looks down at its dorsal side:
+  // slung underneath it was hidden by the body, and at 0.30 it was a balloon the moth
+  // was flying behind.
+  const sac = new THREE.Mesh(new THREE.SphereGeometry(0.23, 22, 16), sacMat);
+  sac.position.set(0, 0.15, -0.34);
+  sac.scale.set(1, 0.8, 1.25);
+
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.22, 1.0, 8, 16), bodyMat);
   body.rotation.x = Math.PI / 2;
   rig.add(body);
+  rig.add(sac);
 
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.26, 8, 6), bodyMat);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.26, 20, 14), bodyMat);
   head.position.z = 0.72;
   rig.add(head);
 
@@ -103,7 +114,7 @@ export function createMoth() {
       rig.add(wing);
     }
     const antenna = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.015, 0.035, 0.75, 4),
+      new THREE.CylinderGeometry(0.015, 0.035, 0.75, 10),
       bodyMat,
     );
     antenna.position.set(side * 0.12, 0.14, 1.0);
@@ -116,6 +127,10 @@ export function createMoth() {
 
   return {
     root,
+    /** Show the colour that the next click will throw. */
+    setNextColor(color) {
+      sacMat.color.copy(color);
+    },
     /** @param {number} elapsed seconds @param {number} effort 0..1, faster when climbing */
     flap(elapsed, effort = 0.5) {
       const rate = 3.2 + effort * 3.4;
@@ -128,6 +143,9 @@ export function createMoth() {
         w.rotation.x = beat * 0.12;
       }
       rig.position.y = Math.sin(t * 0.5) * 0.06; // bob the rig, never the root
+      // the sac pulses gently, so the loaded colour is easy to spot from behind
+      const pulse = 1 + Math.sin(t * 0.9) * 0.10;
+      sac.scale.set(pulse, 0.8 * pulse, 1.25 * pulse);
     },
   };
 }

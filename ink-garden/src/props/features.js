@@ -12,8 +12,10 @@ import { heightAt } from '../terrain.js';
  * strong hue of its own would fight the wash laid over it.
  */
 
+// Smooth shading throughout. Faceted primitives and flatShading are the two things that
+// make a low-poly world read as hard-edged, and this one is meant to be all curves.
 function inkMaterial(opts = {}) {
-  return applyInk(new THREE.MeshLambertMaterial({ flatShading: true, toneMapped: false, ...opts }));
+  return applyInk(new THREE.MeshLambertMaterial({ toneMapped: false, ...opts }));
 }
 
 /**
@@ -46,8 +48,8 @@ function build(geo, material, items, frustumCulled = false) {
 
 /** Flattened rock hanging in the air with a spiked underside. */
 function islandGeometry() {
-  const top = new THREE.IcosahedronGeometry(1, 1).scale(1, 0.34, 1);
-  const keel = new THREE.ConeGeometry(0.78, 1.7, 7).rotateX(Math.PI).translate(0, -0.85, 0);
+  const top = new THREE.SphereGeometry(1, 26, 16).scale(1, 0.34, 1);
+  const keel = new THREE.ConeGeometry(0.78, 1.7, 26).rotateX(Math.PI).translate(0, -0.85, 0);
   return merge([top, keel]);
 }
 
@@ -74,7 +76,7 @@ export function createIslands(count, rand) {
  */
 export function createArches(count, rand) {
   const spots = scatter(count, rand, 16, 30);
-  const geo = new THREE.TorusGeometry(1, 0.14, 6, 20, Math.PI).rotateZ(0);
+  const geo = new THREE.TorusGeometry(1, 0.14, 14, 48, Math.PI);
   const items = spots.map((s) => {
     const k = 8 + rand() * 20;
     return {
@@ -93,10 +95,10 @@ export function createArches(count, rand) {
  * which is why the proportions are deliberately wrong for a real mushroom.
  */
 function growthGeometry() {
-  const stalk = new THREE.CylinderGeometry(0.16, 0.30, 3.4, 7, 3).translate(0, 1.7, 0);
-  const cap = new THREE.SphereGeometry(1.0, 9, 6, 0, Math.PI * 2, 0, Math.PI * 0.55)
+  const stalk = new THREE.CylinderGeometry(0.16, 0.30, 3.4, 22, 3).translate(0, 1.7, 0);
+  const cap = new THREE.SphereGeometry(1.0, 26, 16, 0, Math.PI * 2, 0, Math.PI * 0.55)
     .scale(1, 0.72, 1).translate(0, 3.4, 0);
-  const collar = new THREE.TorusGeometry(0.42, 0.09, 5, 10).rotateX(Math.PI / 2).translate(0, 2.5, 0);
+  const collar = new THREE.TorusGeometry(0.42, 0.09, 10, 26).rotateX(Math.PI / 2).translate(0, 2.5, 0);
   return merge([stalk, cap, collar]);
 }
 
@@ -124,13 +126,13 @@ export function createGrowths(count, rand) {
   return { mesh: build(growthGeometry(), inkMaterial(), items), colliders };
 }
 
-/** Faceted shards. Slightly translucent, so overlapping spires stack their pigment. */
-/** An octahedron scaled 2.6 in Y spans 5.2 units at scale 1. */
+/** Smooth tapered spires. Translucent, so overlapping ones stack their colour. */
+/** The cone stands 5.2 units at scale 1. */
 const SPIRE_BASE_HEIGHT = 5.2;
 
 export function createSpires(count, rand) {
   const spots = scatter(count, rand, 10, 22);
-  const geo = new THREE.OctahedronGeometry(1, 0).scale(0.5, 2.6, 0.5);
+  const geo = new THREE.ConeGeometry(0.5, 5.2, 26);
   const colliders = [];
   const items = spots.map((s) => {
     const height = 6 + rand() * 32;

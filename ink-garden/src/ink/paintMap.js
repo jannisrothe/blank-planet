@@ -34,6 +34,7 @@ uniform float uSatellites;
 uniform float uSpikes;
 uniform float uEdge;       // 0 = razor sharp, higher = softer
 uniform float uTooth;      // canvas texture breaking up the coverage
+uniform float uWobble;     // how far out of round the blob is allowed to go
 
 varying vec2 vUv;
 
@@ -60,13 +61,14 @@ void main() {
 
   float ang = atan(p.y, p.x);
 
-  // Central blob, edge pushed around so it is never a circle.
-  float wobble = fbm(vec2(cos(ang), sin(ang)) * 2.2 + uSeed * 7.0);
-  float core = 0.62 + (wobble - 0.5) * 0.42;
+  // Central blob. Low frequency only, so the outline stays a smooth closed curve
+  // rather than picking up the high-frequency detail that reads as jagged.
+  float wobble = fbm(vec2(cos(ang), sin(ang)) * 1.15 + uSeed * 7.0);
+  float core = 0.78 + (wobble - 0.5) * uWobble;
   float d = r / core;
 
   // Spikes: narrow radial fingers thrown outward, biased downrange of the impact.
-  for (int i = 0; i < 9; i++) {
+  if (uSpikes > 0.001) for (int i = 0; i < 9; i++) {
     float fi = float(i);
     vec2 h = hash2(vec2(fi, uSeed * 13.0));
     float a = h.x * 6.28318;
@@ -81,7 +83,7 @@ void main() {
   }
 
   // Satellites: separate droplets that flew off and landed on their own.
-  for (int i = 0; i < 14; i++) {
+  if (uSatellites > 0.001) for (int i = 0; i < 14; i++) {
     float fi = float(i);
     vec2 h = hash2(vec2(fi + 40.0, uSeed * 5.0));
     float a = h.x * 6.28318;
@@ -92,19 +94,17 @@ void main() {
     d = min(d, length(p - dir * dist) / rr);
   }
 
-  // Hard edge. Oil does not feather, so this is a near-step rather than a gradient.
+  // Clean edge: crisp enough to read as opaque paint, wide enough to antialias.
   float mask = 1.0 - smoothstep(1.0 - uEdge, 1.0, d);
   if (mask <= 0.001) discard;
 
-  // Canvas tooth: paint skips the weave slightly at the thinnest parts of the edge.
-  float tooth = fbm(vUv * 900.0);
-  mask *= mix(1.0, smoothstep(0.16, 0.62, tooth * 0.55 + mask * 0.65), uTooth);
+  // Canvas tooth, off by default. It speckles the edge, which is the opposite of clean.
+  if (uTooth > 0.001) {
+    float tooth = fbm(vUv * 900.0);
+    mask *= mix(1.0, smoothstep(0.16, 0.62, tooth * 0.55 + mask * 0.65), uTooth);
+  }
 
-  // Built-up rim, the way a loaded brush leaves more pigment where it stops.
-  float rim = smoothstep(0.72, 1.0, d) * (1.0 - smoothstep(1.0, 1.06, d));
-  vec3 colour = uColor * (1.0 - rim * 0.28);
-
-  gl_FragColor = vec4(colour, clamp(mask, 0.0, 1.0));
+  gl_FragColor = vec4(uColor, clamp(mask, 0.0, 1.0));
 }
 `;
 
@@ -138,6 +138,7 @@ export class PaintMap {
       uSpikes: { value: cfg.spikes },
       uEdge: { value: cfg.edgeSoftness },
       uTooth: { value: cfg.tooth },
+      uWobble: { value: cfg.wobble },
     };
 
     this.material = new THREE.ShaderMaterial({
@@ -202,6 +203,7 @@ export class PaintMap {
     this.uniforms.uSpikes.value = cfg.spikes;
     this.uniforms.uEdge.value = cfg.edgeSoftness;
     this.uniforms.uTooth.value = cfg.tooth;
+    this.uniforms.uWobble.value = cfg.wobble;
     this._sampleUv.copy(this.uniforms.uCenter.value);
 
     const prevTarget = this.renderer.getRenderTarget();

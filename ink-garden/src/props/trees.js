@@ -12,10 +12,12 @@ import { collision as col } from '../config.js';
  * Also returns collider circles, so collision.js never has to walk the scene graph.
  */
 
+// All smooth and round. Faceted primitives and flatShading read as hard edges, which
+// is exactly what this world is meant not to have.
 const CANOPIES = [
-  { geo: () => new THREE.ConeGeometry(1.1, 2.4, 7), y: 2.15, weight: 3 },      // conifer
-  { geo: () => new THREE.IcosahedronGeometry(1.25, 0), y: 2.6, weight: 4 },    // broadleaf
-  { geo: () => new THREE.SphereGeometry(1.2, 7, 5).scale(1, 0.72, 1), y: 2.5, weight: 3 }, // round
+  { geo: () => new THREE.ConeGeometry(1.1, 2.4, 28), y: 2.15, weight: 3 },
+  { geo: () => new THREE.SphereGeometry(1.25, 22, 16), y: 2.6, weight: 4 },
+  { geo: () => new THREE.SphereGeometry(1.2, 22, 16).scale(1, 0.72, 1), y: 2.5, weight: 3 },
 ];
 
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
@@ -50,7 +52,7 @@ export function createTrees(count, rand) {
   const colour = new THREE.Color();
 
   const trunkMesh = new THREE.InstancedMesh(
-    new THREE.CylinderGeometry(0.14, 0.24, 1.7, 6).translate(0, 0.85, 0),
+    new THREE.CylinderGeometry(0.14, 0.24, 1.7, 16).translate(0, 0.85, 0),
     applyInk(new THREE.MeshLambertMaterial({ toneMapped: false })),
     trees.length,
   );
@@ -67,7 +69,7 @@ export function createTrees(count, rand) {
     const mine = trees.filter((t) => t.kind === kind);
     const mesh = new THREE.InstancedMesh(
       def.geo(),
-      applyInk(new THREE.MeshLambertMaterial({ flatShading: true, toneMapped: false })),
+      applyInk(new THREE.MeshLambertMaterial({ toneMapped: false })),
       mine.length,
     );
     mine.forEach((t, i) => {

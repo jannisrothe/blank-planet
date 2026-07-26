@@ -11,7 +11,7 @@ import { heightAt } from './terrain.js';
  */
 export function createFlight(camera, domElement, { moth, colliders, onLock, onUnlock, onKey, onDrop }) {
   const state = {
-    pos: new THREE.Vector3(0, heightAt(0, 0) + 34, 0),
+    pos: new THREE.Vector3(0, heightAt(0, 0) + cfg.spawnAltitude, 0),
     yaw: 0,
     pitch: -0.34,
     targetYaw: 0,

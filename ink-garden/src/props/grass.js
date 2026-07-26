@@ -1,22 +1,25 @@
 import { cardTexture, cardMesh } from './cards.js';
 import { scatter } from '../scatter.js';
 
-/** A tuft of tapered blades, drawn white so per-instance colour tints it. */
+/**
+ * A tuft of blades with rounded tips. Stroked with round caps rather than filled to a
+ * point: a spike is an edge, and this world is meant to be all curves.
+ */
 const tuft = (ctx, S) => {
   ctx.clearRect(0, 0, S, S);
-  ctx.fillStyle = '#ffffff';
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineCap = 'round';
   const blades = 7;
   for (let i = 0; i < blades; i++) {
     const t = i / (blades - 1);
     const baseX = (0.22 + t * 0.56) * S;
     const lean = (t - 0.5) * 0.42 * S;
     const h = (0.55 + Math.sin(i * 1.7) * 0.2 + 0.2) * S;
-    const w = 0.035 * S;
+    ctx.lineWidth = 0.062 * S;
     ctx.beginPath();
-    ctx.moveTo(baseX - w, S);
+    ctx.moveTo(baseX, S);
     ctx.quadraticCurveTo(baseX + lean * 0.4, S - h * 0.55, baseX + lean, S - h);
-    ctx.quadraticCurveTo(baseX + lean * 0.4, S - h * 0.5, baseX + w, S);
-    ctx.fill();
+    ctx.stroke();
   }
 };
 

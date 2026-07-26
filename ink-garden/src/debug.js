@@ -1,6 +1,6 @@
 import GUI from 'lil-gui';
 import Stats from 'stats.js';
-import { paint as paintCfg, post, density, audio } from './config.js';
+import { paint as paintCfg, post, density, audio, flight as flightCfg } from './config.js';
 
 /**
  * Live tuning panel. Loaded only when the URL has ?debug, so the production bundle
@@ -22,6 +22,7 @@ export function createDebug({ post: postFx, paint, ambience }) {
   fSplat.add(paintCfg, 'spikes', 0, 3, 0.02).name('spike length');
   fSplat.add(paintCfg, 'satellites', 0, 3, 0.02).name('spatter spread');
   fSplat.add(paintCfg, 'edgeSoftness', 0, 0.5, 0.005).name('edge softness');
+  fSplat.add(paintCfg, 'wobble', 0, 1, 0.01).name('out of round');
   fSplat.add(paintCfg, 'tooth', 0, 1, 0.01).name('canvas tooth');
 
   const fWash = gui.addFolder('paint');
@@ -43,6 +44,11 @@ export function createDebug({ post: postFx, paint, ambience }) {
     .onChange((x) => { u('uFibre').value = x; });
   fPaper.add({ on: true }, 'on').name('painterly pass')
     .onChange((on) => postFx.setEnabled(on));
+
+  const fFlight = gui.addFolder('flight');
+  fFlight.add(flightCfg, 'driftSpeed', 1, 30, 0.5).name('drift speed');
+  fFlight.add(flightCfg, 'groundClearance', 5, 200, 1).name('min altitude');
+  fFlight.add(flightCfg, 'smoothing', 0.5, 8, 0.1).name('steering weight');
 
   const fAudio = gui.addFolder('audio');
   fAudio.add(audio, 'gainWet', 0, 1, 0.01).name('volume when wet');
