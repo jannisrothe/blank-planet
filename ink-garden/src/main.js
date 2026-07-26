@@ -12,6 +12,7 @@ import { createGrass } from './props/grass.js';
 import { createTrees } from './props/trees.js';
 import { createMushrooms, createReeds, createRocks } from './props/smallProps.js';
 import { createMoth } from './props/moth.js';
+import { createIslands, createArches, createGrowths, createSpires } from './props/features.js';
 import { createComposer } from './post/composer.js';
 import { Ambience } from './audio.js';
 import { density } from './config.js';
@@ -36,6 +37,8 @@ const rand = rng(20260726);
 
 const trees = createTrees(density.trees, rand);
 const rocks = createRocks(density.rocks, rand);
+const growths = createGrowths(density.growths, rand);
+const spires = createSpires(density.spires, rand);
 
 scene.add(
   ...createFlowers(density.flowers, rand),
@@ -44,9 +47,15 @@ scene.add(
   createMushrooms(density.mushrooms, rand),
   createReeds(density.reeds, rand),
   rocks.mesh,
+  createIslands(density.islands, rand),
+  createArches(density.arches, rand),
+  growths.mesh,
+  spires.mesh,
 );
 
-const colliders = new Colliders([...trees.colliders, ...rocks.colliders]);
+// Only the tall alien features block flight. Trees and rocks are far below cruising
+// altitude, so colliding with them would stop the moth in mid air over nothing.
+const colliders = new Colliders([...growths.colliders, ...spires.colliders]);
 
 const moth = createMoth();
 scene.add(moth.root);
@@ -77,6 +86,7 @@ function dropPigment() {
 
 const flight = createFlight(camera, renderer.domElement, {
   moth,
+  colliders,
   onDrop: dropPigment,
   onLock: () => {
     overlay.classList.add('hidden');

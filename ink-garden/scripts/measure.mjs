@@ -251,11 +251,19 @@ async function main() {
     // Paint some pigment into view first, otherwise the shot is a blank sheet.
     await page.evaluate(async () => {
       const g = globalThis.__inkGarden;
-      g.input.turn = 0;
-      for (let i = 0; i < 7; i++) {
+      g.input.turn = 0.06;
+      // Climb first, so the shot looks out over the landscape rather than sitting in it.
+      g.input.climb = 0.5;
+      await new Promise((r) => setTimeout(r, 2000));
+      g.input.climb = 0;
+      for (let i = 0; i < 9; i++) {
         g.dropPigment();
-        await new Promise((r) => setTimeout(r, 420));
+        await new Promise((r) => setTimeout(r, 500));
       }
+      g.input.turn = 0;
+      g.input.climb = -0.25;
+      await new Promise((r) => setTimeout(r, 900));
+      g.input.climb = 0;
       await new Promise((r) => setTimeout(r, 2600));
     });
     await page.evaluate(() => {
@@ -357,6 +365,11 @@ async function main() {
 
   console.log(`  frame time   p50 ${ms(r.p50)}   p95 ${ms(r.p95)}   p99 ${ms(r.p99)}   worst ${ms(r.worst)}`);
   console.log(`  fps          p50 ${fps(r.p50)}   p95 ${fps(r.p95)}`);
+  if (uncapped && r.p50 < 1) {
+    console.log('  ! p50 under 1ms means the JS loop has run ahead of the GPU: rAF is');
+    console.log('    returning before the frame is drawn, so these deltas are JS time,');
+    console.log('    not frame cost. Trust the capped run instead.');
+  }
   console.log(`  draw calls   ${r.drawCalls}`);
   console.log(`  samples      ${r.samples}`);
   console.log(`  input        ${driven ? 'driven directly (pointer lock is unreliable in automation)' : 'pointer lock'}`);

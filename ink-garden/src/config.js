@@ -22,7 +22,7 @@ export const flight = {
   maxPitch: 0.85,      // radians, keeps you from looping over the top
   smoothing: 3.2,      // higher is snappier; low values feel like heavy drifting
   groundClearance: 6,  // never fly closer than this to the terrain
-  ceiling: 95,
+  ceiling: 130,
   // Chase camera, in the moth's local frame.
   camBack: 8.5,
   camUp: 4.4,
@@ -42,9 +42,9 @@ export const ink = {
 
   // How the wash reads on the world.
   coverGamma: 0.78,    // <1 makes thin coverage show up sooner
-  shadeFloor: 0.90,    // object shading multiplies pigment between this and this+range
-  shadeRange: 0.28,    // keep this small or shaded slopes crush the pigment to black
-  chroma: 1.35,        // re-saturation, or overlapping drops average into mud
+  shadeFloor: 0.58,    // object shading multiplies pigment between this and this+range
+  shadeRange: 0.72,    // safe to be generous now that mud is fixed; black came from pigment, not shading
+  chroma: 1.22,        // re-saturation, or overlapping drops average into mud
 };
 
 export const post = {
@@ -65,10 +65,10 @@ export const density = {
   mushrooms: 3300,
   rocks: 600,
   reeds: 2600,
-  islands: 40,
-  arches: 26,
-  growths: 190,
-  spires: 260,
+  islands: 34,
+  arches: 22,
+  growths: 90,
+  spires: 120,
 };
 
 export const collision = {

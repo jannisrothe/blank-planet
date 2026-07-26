@@ -6,7 +6,11 @@ import { collision as cfg } from './config.js';
  * what is really "don't walk through the trunk".
  */
 export class Colliders {
-  constructor(colliders, cellSize = 4) {
+  constructor(colliders, cellSize = null) {
+    // The 3x3 neighbourhood lookup only finds a collider if the cell is at least as
+    // wide as the largest radius, otherwise a big growth is missed from two cells away.
+    const widest = colliders.reduce((a, c) => Math.max(a, c.r), 0);
+    cellSize = cellSize ?? Math.max(4, Math.ceil(widest * 2));
     this.cell = cellSize;
     this.grid = new Map();
     for (const c of colliders) this.#insert(c);
@@ -25,7 +29,10 @@ export class Colliders {
 
   /**
    * Pushes the position out of anything it overlaps. Mutates and returns `pos`.
-   * Two passes: one resolution can shove the player into a neighbouring trunk.
+   * Two passes: one resolution can shove the player into a neighbouring obstacle.
+   *
+   * A collider with `yTop` only blocks below that height, so flying over a spire is
+   * free while flying through it is not.
    */
   resolve(pos) {
     const cx = Math.floor(pos.x / this.cell);
@@ -38,6 +45,7 @@ export class Colliders {
           const bucket = this.grid.get(this.#key(cx + ix, cz + iz));
           if (!bucket) continue;
           for (const c of bucket) {
+            if (c.yTop !== undefined && pos.y > c.yTop) continue;
             const dx = pos.x - c.x;
             const dz = pos.z - c.z;
             const min = c.r + cfg.playerRadius;

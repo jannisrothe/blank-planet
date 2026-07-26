@@ -9,7 +9,7 @@ import { heightAt } from './terrain.js';
  *
  * Replaces v1's PointerLockControls WASD walking.
  */
-export function createFlight(camera, domElement, { moth, onLock, onUnlock, onKey, onDrop }) {
+export function createFlight(camera, domElement, { moth, colliders, onLock, onUnlock, onKey, onDrop }) {
   const state = {
     pos: new THREE.Vector3(0, heightAt(0, 0) + 34, 0),
     yaw: 0,
@@ -79,6 +79,7 @@ export function createFlight(camera, domElement, { moth, onLock, onUnlock, onKey
     const half = WORLD_SIZE / 2 - 6;
     state.pos.x = Math.min(half, Math.max(-half, state.pos.x));
     state.pos.z = Math.min(half, Math.max(-half, state.pos.z));
+    colliders?.resolve(state.pos);
     const floor = heightAt(state.pos.x, state.pos.z) + cfg.groundClearance;
     if (state.pos.y < floor) {
       state.pos.y = floor;
@@ -98,6 +99,9 @@ export function createFlight(camera, domElement, { moth, onLock, onUnlock, onKey
     const want = state.pos.clone().add(back);
     const ck = 1 - Math.exp(-cfg.camLag * dt);
     camera.position.lerp(want, ck);
+    // The camera trails the moth, so clearing an obstacle with the moth is not enough:
+    // the camera has to be pushed out of it too or the view ends up inside the spire.
+    colliders?.resolve(camera.position);
     camera.position.y = Math.max(camera.position.y,
       heightAt(camera.position.x, camera.position.z) + 2.0);
     // Aim slightly below the moth, so the ground you are painting fills the frame.
