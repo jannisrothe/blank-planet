@@ -70,6 +70,9 @@ void main() {
 }
 `;
 
+/** Patch of the mask averaged for the audio signal, in texels. ~3x the reveal radius. */
+const SAMPLE_SPAN = 64;
+
 export class InkMap {
   constructor(renderer) {
     this.renderer = renderer;
@@ -90,6 +93,9 @@ export class InkMap {
       new THREE.WebGLRenderTarget(size, size, opts),
     ];
     this.index = 0;
+    this._buffer = new Uint8Array(SAMPLE_SPAN * SAMPLE_SPAN * 4);
+    this._wetness = 0;
+    this._reading = false;
 
     this.uniforms = {
       uPrev: { value: this.targets[1].texture },
@@ -160,6 +166,42 @@ export class InkMap {
 
     this.index ^= 1;
   }
+
+  /**
+   * How wet the paper is around the player, 0..1, for the audio mix.
+   *
+   * Reading a single texel under the player would always return ~1, because the
+   * player sits at the centre of their own blot. Averaging a patch several times the
+   * reveal radius across gives the useful signal instead: it rises as you spread ink
+   * and falls as it dries.
+   *
+   * Async on purpose. The synchronous read flushes the GPU pipeline; this one does not,
+   * and audio does not care about a frame or two of latency.
+   */
+  async sampleWetness() {
+    if (this._reading) return this._wetness;
+    this._reading = true;
+    try {
+      const S = cfg.resolution;
+      const R = SAMPLE_SPAN;
+      const clamp = (v) => Math.max(0, Math.min(S - R, Math.round(v)));
+      const x = clamp(this.uniforms.uPlayer.value.x * S - R / 2);
+      const y = clamp(this.uniforms.uPlayer.value.y * S - R / 2);
+      await this.renderer.readRenderTargetPixelsAsync(
+        this.targets[this.index], x, y, R, R, this._buffer,
+      );
+      let sum = 0;
+      for (let i = 0; i < this._buffer.length; i += 4) sum += this._buffer[i];
+      this._wetness = sum / (R * R * 255);
+    } catch {
+      this._wetness = 0; // readback unsupported: audio falls back to its dry setting
+    } finally {
+      this._reading = false;
+    }
+    return this._wetness;
+  }
+
+  get wetness() { return this._wetness; }
 
   dispose() {
     this.targets.forEach((t) => t.dispose());

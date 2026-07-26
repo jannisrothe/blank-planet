@@ -32,6 +32,15 @@ export const density = {
   reeds: 1600,
 };
 
+export const post = {
+  radius: 3,        // Kuwahara kernel radius in pixels; cost grows with the square
+  grain: 0.09,      // paper texture strength
+  grainScale: 900,
+  outline: 0.28,    // ink gathering along form boundaries
+  vignette: 0.5,    // falls off to white, like the edge of a wet sheet
+  fibre: 2.2,       // how far pigment wanders along the paper grain
+};
+
 export const collision = {
   playerRadius: 0.45,
   treeRadius: 0.55,
@@ -44,4 +53,10 @@ export const audio = {
   gainDry: 0.15, gainWet: 0.85,
   cutoffDry: 400, cutoffWet: 18000,
   smoothing: 0.6, // seconds
+
+  // Endpoints measured with scripts/measure.mjs, not guessed. Wetness sits at 0.148
+  // standing still (your own blot, in equilibrium) and peaks near 0.245 walking.
+  // A naive 0..1 mapping would leave the mix pinned wide open the entire time.
+  wetnessDry: 0.14,
+  wetnessWet: 0.26,
 };

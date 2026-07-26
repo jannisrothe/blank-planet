@@ -10,10 +10,13 @@ import { createFlowers } from './props/flowers.js';
 import { createGrass } from './props/grass.js';
 import { createTrees } from './props/trees.js';
 import { createMushrooms, createReeds, createRocks } from './props/smallProps.js';
+import { createComposer } from './post/composer.js';
+import { Ambience } from './audio.js';
 import { density } from './config.js';
 
 const { renderer, scene, camera } = createWorld();
 const inkMap = new InkMap(renderer);
+const post = createComposer(renderer, scene, camera);
 
 const ground = createGround();
 applyInk(ground.material);
@@ -40,10 +43,26 @@ const colliders = new Colliders([...trees.colliders, ...rocks.colliders]);
 const overlay = document.getElementById('overlay');
 const hint = document.getElementById('hint');
 
+const ambience = new Ambience(camera);
+ambience.load().catch((e) => console.warn('[audio] could not load the ambient bed:', e.message));
+
 const { controls, update: updateControls, input } = createControls(camera, renderer.domElement, {
   colliders,
-  onLock: () => { overlay.classList.add('hidden'); hint.classList.remove('hidden'); },
-  onUnlock: () => { overlay.classList.remove('hidden'); hint.classList.add('hidden'); },
+  onLock: () => {
+    overlay.classList.add('hidden');
+    hint.classList.remove('hidden');
+    ambience.start();
+  },
+  onUnlock: () => {
+    overlay.classList.remove('hidden');
+    hint.classList.add('hidden');
+    ambience.stop();
+  },
+  onKey: (code) => {
+    if (code === 'KeyM') hint.textContent = ambience.toggleMute()
+      ? 'sound off · M to unmute'
+      : 'walk to spread the ink · it dries after a few seconds';
+  },
 });
 overlay.addEventListener('click', () => controls.lock());
 
@@ -59,12 +78,18 @@ function frame() {
   if (!api.freeze) inkMap.update(camera.position.x, camera.position.z, dt, timer.getElapsed());
   updateInkUniforms(inkMap.texture);
 
-  renderer.render(scene, camera);
+  // Async readback, so this never stalls the pipeline. A few frames of latency is
+  // inaudible, and sampling every frame would be pointless at a 0.6s smoothing time.
+  if (++frameCount % 8 === 0) inkMap.sampleWetness();
+  ambience.update(inkMap.wetness);
+
+  post.render(dt);
 }
+let frameCount = 0;
 
 // Hooks for scripts/measure.mjs. `freeze` lets the harness wipe the ink and confirm
 // the world really does disappear, without the loop immediately re-inking underfoot.
-const api = { renderer, scene, camera, inkMap, colliders, input, freeze: false };
+const api = { renderer, scene, camera, inkMap, colliders, input, post, ambience, freeze: false };
 globalThis.__inkGarden = api;
 
 frame();

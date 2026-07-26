@@ -213,16 +213,31 @@ async function main() {
       const g = globalThis.__inkGarden;
       g.input.forward = 1;
       const t0 = performance.now();
+      window.__wet = [];
       while (performance.now() - t0 < seconds * 1000) {
         await new Promise((r) => requestAnimationFrame(r));
         g.camera.rotateY(-0.006);
+        window.__wet.push(g.inkMap.wetness);
       }
       g.input.forward = 0;
     }, SECONDS);
   } else {
-    await page.waitForTimeout(SECONDS * 1000);
+    await page.evaluate(async (seconds) => {
+      const g = globalThis.__inkGarden;
+      window.__wet = [];
+      const t0 = performance.now();
+      while (performance.now() - t0 < seconds * 1000) {
+        await new Promise((r) => requestAnimationFrame(r));
+        window.__wet.push(g.inkMap.wetness);
+      }
+    }, SECONDS);
   }
   const r = await page.evaluate(() => window.__probe.stop());
+  const wet = await page.evaluate(() => {
+    const w = (window.__wet ?? []).filter((v) => v > 0).sort((a, b) => a - b);
+    if (!w.length) return null;
+    return { min: w[0], med: w[(w.length / 2) | 0], max: w[w.length - 1] };
+  });
   const whiteWalk = await whiteness(page, uncapped);
 
   // The core promise: with no ink on the paper you cannot see the world at all.
@@ -251,7 +266,8 @@ async function main() {
       for (const bucket of g.colliders.grid.values()) {
         for (const c of bucket) {
           const d = Math.hypot(c.x - p.x, c.z - p.z);
-          if (d > 2 && (!best || d < best.d)) best = { c, d };
+          // far enough to require a real approach, near enough to reach in 4s
+          if (d > 6 && d < 30 && (!best || d < best.d)) best = { c, d };
         }
       }
       if (!best) return null;
@@ -269,6 +285,27 @@ async function main() {
     });
   }
 
+  // Audio: the bed must actually be running, and the ink must actually move the mix.
+  let sound = null;
+  if (!uncapped) {
+    sound = await page.evaluate(() => {
+      const a = globalThis.__inkGarden?.ambience;
+      if (!a) return null;
+      a.wanted = true;
+      a.update(0.148); // measured stationary equilibrium
+      const dry = { gain: a.lastGain, cutoff: a.lastCutoff };
+      a.update(0.245); // measured walking peak
+      const wet = { gain: a.lastGain, cutoff: a.lastCutoff };
+      return {
+        ready: a.ready,
+        playing: a.sound.isPlaying,
+        state: a.listener.context.state,
+        seconds: a.sound.buffer?.duration ?? 0,
+        dry, wet,
+      };
+    });
+  }
+
   const shot = value('shot', null);
   if (shot && !uncapped) await page.screenshot({ path: shot });
 
@@ -283,11 +320,21 @@ async function main() {
   if (collide) {
     const floor = collide.radius + 0.45; // collider radius + player radius
     // A run that never got near the trunk proves nothing, so say so rather than pass.
-    const reached = collide.closest < collide.start - 1;
+    const reached = collide.start - collide.closest > 0.3;
     const pass = reached && collide.closest >= floor - 0.05;
     const verdict = !reached ? 'INCONCLUSIVE (never reached the tree)'
       : pass ? 'PASS' : 'FAIL (walked through)';
     console.log(`  collision    approached from ${collide.start.toFixed(1)} to ${collide.closest.toFixed(2)}, floor ${floor.toFixed(2)}  ${verdict}`);
+  }
+  if (wet) {
+    console.log(`  wetness      min ${wet.min.toFixed(3)}  median ${wet.med.toFixed(3)}  max ${wet.max.toFixed(3)}  (drives the audio mix)`);
+  }
+  if (sound) {
+    const moves = sound.wet.cutoff > sound.dry.cutoff * 2 && sound.wet.gain > sound.dry.gain * 1.5;
+    console.log(`  audio        ${sound.ready ? `loaded ${sound.seconds.toFixed(0)}s` : 'NOT LOADED'}, `
+      + `context ${sound.state}, ${sound.playing ? 'playing' : 'not playing'}`);
+    console.log(`  audio mix    dry ${sound.dry.cutoff.toFixed(0)}Hz @${sound.dry.gain.toFixed(2)} `
+      + `-> wet ${sound.wet.cutoff.toFixed(0)}Hz @${sound.wet.gain.toFixed(2)}  ${moves ? 'PASS' : 'FAIL (ink does not move the mix)'}`);
   }
   if (Number.isFinite(whiteBlank)) {
     const pass = whiteBlank > 0.99;
