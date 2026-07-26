@@ -24,8 +24,8 @@ export const flight = {
   groundClearance: 6,  // never fly closer than this to the terrain
   ceiling: 95,
   // Chase camera, in the moth's local frame.
-  camBack: 7.5,
-  camUp: 2.6,
+  camBack: 8.5,
+  camUp: 4.4,
   camLag: 4.0,
 };
 
@@ -36,14 +36,15 @@ export const ink = {
   drySeconds: 10,      // how long a bloom stays wet and creeping
   capillary: 0.985,    // how readily water advances into dry paper; <1 or it never stops
   advection: 1.6,      // how hard pigment is dragged along the flow
-  granulation: 0.55,   // paper tooth modulating where pigment settles
+  granulation: 0.22,   // paper tooth modulating where pigment settles
   edgeDarkening: 0.9,  // extra deposition where the water gradient is steep
   paperScale: 190,     // frequency of the granulation and capacity noise
 
   // How the wash reads on the world.
-  coverGamma: 0.75,    // <1 makes thin coverage show up sooner
-  shadeFloor: 0.55,    // object shading multiplies pigment between this and this+range
-  shadeRange: 0.9,
+  coverGamma: 0.78,    // <1 makes thin coverage show up sooner
+  shadeFloor: 0.90,    // object shading multiplies pigment between this and this+range
+  shadeRange: 0.28,    // keep this small or shaded slopes crush the pigment to black
+  chroma: 1.35,        // re-saturation, or overlapping drops average into mud
 };
 
 export const post = {
@@ -84,6 +85,6 @@ export const audio = {
   smoothing: 0.6, // seconds
 
   // Recalibrated in step 6 once the drop mechanic changes what wetness looks like.
-  wetnessDry: 0.0,
-  wetnessWet: 0.12,
+  wetnessDry: 0.02,
+  wetnessWet: 0.45,
 };

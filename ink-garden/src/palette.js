@@ -26,6 +26,36 @@ const FAMILIES = {
   stone:    { h: [200, 240], s: [0.04, 0.12], l: [0.56, 0.72] },
 };
 
+/**
+ * The pigments you drop. High chroma on purpose: these now supply all of the world's
+ * colour, so anything muted here reads as a dirty wash rather than an alien planet.
+ * Deliberately not sampled from FAMILIES, which is tuned for object shading.
+ */
+export const PIGMENTS = [
+  0xff1f8f, // electric magenta
+  0x9dff2e, // acid green
+  0x14e0ff, // cyan
+  0x8b3dff, // violet
+  0xff7a10, // sodium orange
+  0xff3d6e, // hot pink
+  0x00ffc3, // spearmint
+  0xffe615, // sulphur yellow
+  0x2f5bff, // ultramarine
+  0xff4fe0, // fuchsia
+];
+
+/** @param {() => number} rand @returns {THREE.Color} a fresh pigment for one drop */
+export function samplePigment(rand, out = new THREE.Color()) {
+  const base = PIGMENTS[(rand() * PIGMENTS.length) | 0];
+  out.setHex(base);
+  // Nudge the hue a little so repeat drops of the same pigment are not identical.
+  const hsl = { h: 0, s: 0, l: 0 };
+  out.getHSL(hsl);
+  return out.setHSL((hsl.h + (rand() - 0.5) * 0.045 + 1) % 1,
+    Math.min(1, hsl.s * (0.92 + rand() * 0.16)),
+    Math.min(0.72, hsl.l * (0.92 + rand() * 0.18)));
+}
+
 /** Which families each prop draws from, and how heavily. */
 export const MIXES = {
   flower: ['blush', 'blush', 'coral', 'saffron', 'cerulean', 'violet', 'magenta', 'cream'],

@@ -219,7 +219,7 @@ async function main() {
       window.__alt = [];
       while (performance.now() - t0 < seconds * 1000) {
         await new Promise((r) => requestAnimationFrame(r));
-        window.__wet.push(g.inkMap.wetness);
+        window.__wet.push(g.pigment.wetness);
         const p = g.flight.state.pos;
         window.__alt.push(p.y - g.heightAt(p.x, p.z));
       }
@@ -232,7 +232,7 @@ async function main() {
       const t0 = performance.now();
       while (performance.now() - t0 < seconds * 1000) {
         await new Promise((r) => requestAnimationFrame(r));
-        window.__wet.push(g.inkMap.wetness);
+        window.__wet.push(g.pigment.wetness);
       }
     }, SECONDS);
   }
@@ -248,6 +248,16 @@ async function main() {
   // brings the entry overlay back and washes the whole frame out.
   const shot = value('shot', null);
   if (shot && !uncapped) {
+    // Paint some pigment into view first, otherwise the shot is a blank sheet.
+    await page.evaluate(async () => {
+      const g = globalThis.__inkGarden;
+      g.input.turn = 0;
+      for (let i = 0; i < 7; i++) {
+        g.dropPigment();
+        await new Promise((r) => setTimeout(r, 420));
+      }
+      await new Promise((r) => setTimeout(r, 2600));
+    });
     await page.evaluate(() => {
       document.getElementById('overlay')?.classList.add('hidden');
       document.getElementById('hint')?.classList.add('hidden');
@@ -261,8 +271,10 @@ async function main() {
   if (!uncapped && (await page.evaluate(() => !!globalThis.__inkGarden))) {
     await page.evaluate(() => {
       const g = globalThis.__inkGarden;
-      g.freeze = true;      // stop the loop re-inking under the player
-      g.inkMap.clear();
+      g.pigment.clear();
+      // The moth is deliberately never ink-washed, so it is always visible. This gate
+      // is about whether the WORLD disappears, so the moth is not part of it.
+      if (g.moth) g.moth.root.visible = false;
       // The debug panel and FPS meter are DOM, not world. Counting their pixels
       // would fail this gate for a reason that has nothing to do with the render.
       document.getElementById('overlay')?.classList.add('hidden');
@@ -274,7 +286,10 @@ async function main() {
     });
     await page.waitForTimeout(400);
     whiteBlank = await whiteness(page, false);
-    await page.evaluate(() => { globalThis.__inkGarden.freeze = false; });
+    await page.evaluate(() => {
+      globalThis.__inkGarden.freeze = false;
+      if (globalThis.__inkGarden.moth) globalThis.__inkGarden.moth.root.visible = true;
+    });
   }
 
   // Flight: the moth must never clip through the land it is flying over.
@@ -283,6 +298,39 @@ async function main() {
     if (!a.length) return null;
     return { min: Math.min(...a), max: Math.max(...a), samples: a.length };
   });
+
+  // Pigment gates. These are the heart of v2, so they assert behaviour rather than
+  // just checking nothing crashed.
+  let bloom = null;
+  if (!uncapped && (await page.evaluate(() => !!globalThis.__inkGarden?.pigment))) {
+    bloom = await page.evaluate(async () => {
+      const g = globalThis.__inkGarden;
+      const THREE_Color = g.pigment.wetUniforms.uDropColor.value.constructor;
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+      g.pigment.clear();
+      await wait(200);
+      const before = await g.pigment.sampleAt(0, 0);
+
+      // Drop a known magenta at a known point.
+      g.pigment.drop(0, 0, new THREE_Color(1, 0, 1));
+      await wait(1200);
+      const wetNow = g.pigment.wetness;
+
+      // Let it dry well past drySeconds, then check it is still there.
+      await wait(14000);
+      const dried = await g.pigment.sampleAt(0, 0);
+      await wait(12000);
+      const later = await g.pigment.sampleAt(0, 0);
+
+      // Overlap a cyan drop on the same spot and see whether the result mixes.
+      g.pigment.drop(0, 0, new THREE_Color(0, 1, 1));
+      await wait(14000);
+      const mixed = await g.pigment.sampleAt(0, 0);
+
+      return { before, wetNow, dried, later, mixed };
+    });
+  }
 
   // Audio: the bed must actually be running, and the ink must actually move the mix.
   let sound = null;
@@ -321,6 +369,23 @@ async function main() {
   }
   if (wet) {
     console.log(`  wetness      min ${wet.min.toFixed(3)}  median ${wet.med.toFixed(3)}  max ${wet.max.toFixed(3)}  (drives the audio mix)`);
+  }
+  if (bloom) {
+    const b = bloom;
+    const grew = b.before.a < 8 && b.dried.a > 40;
+    console.log(`  bloom        coverage ${b.before.a} -> ${b.dried.a} after a drop, wetness peaked ${b.wetNow.toFixed(3)}  ${grew ? 'PASS' : 'FAIL (no bloom deposited)'}`);
+
+    // The one that would regress silently: staining is meant to be permanent, so
+    // coverage must never drop. It may still climb, since a slow bloom keeps
+    // depositing as the last of the water leaves.
+    const kept = b.later.a >= b.dried.a - 3;
+    const note = b.later.a > b.dried.a + 3 ? ' (still depositing)' : '';
+    console.log(`  persistence  coverage ${b.dried.a} -> ${b.later.a} 12s later${note}  ${kept ? 'PASS' : 'FAIL (stain faded)'}`);
+
+    // Magenta then cyan must land on something that is neither.
+    const m = b.mixed;
+    const mixedOk = m.g > b.dried.g + 12 && m.b > 60;
+    console.log(`  mixing       magenta rgb(${b.dried.r},${b.dried.g},${b.dried.b}) + cyan -> rgb(${m.r},${m.g},${m.b})  ${mixedOk ? 'PASS' : 'FAIL (second drop did not mix)'}`);
   }
   if (sound) {
     const moves = sound.wet.cutoff > sound.dry.cutoff * 2 && sound.wet.gain > sound.dry.gain * 1.5;

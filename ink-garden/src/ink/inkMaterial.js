@@ -2,17 +2,16 @@ import * as THREE from 'three';
 import { WORLD_SIZE, ink as cfg } from '../config.js';
 
 /**
- * Patches any three material so its fragments fade to paper white wherever there is
- * no ink, in two stages.
+ * Patches any three material so it is invisible on blank paper and takes on whatever
+ * pigment has been dropped over it.
  *
- * The prototype approximated this with `material.color.lerp(GRAY, FULL)`, which just
- * multiplies the texture by 0x999999 -- muted colour, never actually grayscale, and it
- * flips a whole object at once so there is no edge. Sampling a mask per fragment means
- * the boundary can cut straight through a tree trunk, which is what an ink bleed does.
+ * v1 sampled a scalar mask and mixed toward white: the ink was a clear reveal and each
+ * object supplied its own colour. Now the pigment carries the colour, so a magenta drop
+ * stains ground, plants and rock alike, and two overlapping drops mix.
  *
- * Stage 1 (wash): the shape emerges from blank paper as a desaturated gray form.
- * Stage 2 (pigment): colour floods in behind it.
- * Plus a wet edge, where pigment pools darker at the boundary of the blot.
+ * The object's own shading still modulates the pigment, which is the difference between
+ * a wash over a drawing and a flat fill: a tree and the ground both go magenta, but the
+ * tree still reads as a tree.
  */
 
 const patched = new Set();
@@ -34,21 +33,26 @@ const VERTEX_INJECT = /* glsl */`
 const FRAGMENT_INJECT = /* glsl */`
 {
   vec2 inkUv = vInkWorld.xz / uInkWorldSize + 0.5;
-  float ink = texture2D(uInkMap, inkUv).r;
+  vec4 dryTex = texture2D(uDryMap, inkUv);
+  vec4 wetTex = texture2D(uWetMap, inkUv);
 
-  // A wet edge is pigment migrating to the boundary of the wash and drying there.
-  // So the rim is not a gray shadow: it carries MORE colour than its surroundings
-  // and sits darker. Adding it to pigment before the mix is what sells it.
-  float rim = smoothstep(uRim.x, uRim.y, ink) * (1.0 - smoothstep(uRim.y, uRim.z, ink));
+  // Suspended pigment sits on top of what has already dried.
+  vec3 pigment = mix(dryTex.rgb, wetTex.rgb, clamp(wetTex.a * 1.6, 0.0, 1.0));
+  float cover = clamp(dryTex.a + wetTex.a, 0.0, 1.0);
+  cover = pow(cover, uCoverGamma);
 
-  float wash = smoothstep(uWash.x, uWash.y, ink);
-  float pigment = clamp(smoothstep(uPig.x, uPig.y, ink) + rim * 0.65, 0.0, 1.0);
+  // The form's own shading modulates the pigment rather than tinting it, so shapes
+  // still read through a flat wash.
+  // Re-saturate. Successive drops average together, and averaging two hues always
+  // pulls toward gray, so without this a well-painted area turns to mud.
+  float mx = max(pigment.r, max(pigment.g, pigment.b));
+  float mn = min(pigment.r, min(pigment.g, pigment.b));
+  pigment = clamp(mx > 1e-4 ? mn + (pigment - mn) * uChroma : pigment, 0.0, 1.0);
 
-  vec3 lum = vec3(dot(gl_FragColor.rgb, vec3(0.2126, 0.7152, 0.0722)));
-  vec3 col = mix(lum, gl_FragColor.rgb, pigment);
-  col *= 1.0 - rim * uRimStrength;
+  float lum = dot(gl_FragColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+  vec3 painted = pigment * (uShade.x + uShade.y * lum);
 
-  gl_FragColor.rgb = mix(uPaper, col, wash);
+  gl_FragColor.rgb = mix(uPaper, painted, cover);
 }
 `;
 
@@ -62,16 +66,16 @@ export function applyInk(material) {
   material.onBeforeCompile = (shader, renderer) => {
     previous?.(shader, renderer);
 
-    shader.uniforms.uInkMap = { value: null };
+    shader.uniforms.uWetMap = { value: null };
+    shader.uniforms.uDryMap = { value: null };
     shader.uniforms.uInkWorldSize = { value: WORLD_SIZE };
     shader.uniforms.uPaper = { value: new THREE.Color(0xffffff) };
-    shader.uniforms.uWash = { value: new THREE.Vector2(cfg.washLo, cfg.washHi) };
-    shader.uniforms.uPig = { value: new THREE.Vector2(cfg.pigLo, cfg.pigHi) };
-    shader.uniforms.uRim = { value: new THREE.Vector3(cfg.rimLo, cfg.rimMid, cfg.rimHi) };
-    shader.uniforms.uRimStrength = { value: cfg.rimStrength };
+    shader.uniforms.uCoverGamma = { value: cfg.coverGamma };
+    shader.uniforms.uShade = { value: new THREE.Vector2(cfg.shadeFloor, cfg.shadeRange) };
+    shader.uniforms.uChroma = { value: cfg.chroma };
 
     if (!shader.vertexShader.includes(VERTEX_HOOK)) {
-      console.warn('[ink] no vertex hook in', material.type, '- object will not fade to paper');
+      console.warn('[ink] no vertex hook in', material.type, '- object will not take pigment');
       return;
     }
     shader.vertexShader = shader.vertexShader
@@ -80,15 +84,16 @@ export function applyInk(material) {
 
     const hook = FRAGMENT_HOOKS.find((h) => shader.fragmentShader.includes(h));
     if (!hook) {
-      console.warn('[ink] no fragment hook in', material.type, '- object will not fade to paper');
+      console.warn('[ink] no fragment hook in', material.type, '- object will not take pigment');
       return;
     }
     shader.fragmentShader = shader.fragmentShader
       .replace(
         'void main() {',
         'varying vec3 vInkWorld;\n'
-        + 'uniform sampler2D uInkMap;\nuniform float uInkWorldSize;\nuniform vec3 uPaper;\n'
-        + 'uniform vec2 uWash;\nuniform vec2 uPig;\nuniform vec3 uRim;\nuniform float uRimStrength;\n'
+        + 'uniform sampler2D uWetMap;\nuniform sampler2D uDryMap;\n'
+        + 'uniform float uInkWorldSize;\nuniform vec3 uPaper;\n'
+        + 'uniform float uCoverGamma;\nuniform vec2 uShade;\nuniform float uChroma;\n'
         + 'void main() {',
       )
       .replace(hook, hook + FRAGMENT_INJECT);
@@ -97,18 +102,18 @@ export function applyInk(material) {
   };
 
   // Without this three can hand back a cached program compiled before the patch.
-  material.customProgramCacheKey = () => 'ink-v1';
+  material.customProgramCacheKey = () => 'ink-v2';
   material.needsUpdate = true;
   return material;
 }
 
-/** Point every patched material at this frame's mask, and push live tuning values. */
-export function updateInkUniforms(texture) {
+/** Point every patched material at this frame's maps, and push live tuning values. */
+export function updateInkUniforms(wetTexture, dryTexture) {
   for (const shader of patched) {
-    shader.uniforms.uInkMap.value = texture;
-    shader.uniforms.uWash.value.set(cfg.washLo, cfg.washHi);
-    shader.uniforms.uPig.value.set(cfg.pigLo, cfg.pigHi);
-    shader.uniforms.uRim.value.set(cfg.rimLo, cfg.rimMid, cfg.rimHi);
-    shader.uniforms.uRimStrength.value = cfg.rimStrength;
+    shader.uniforms.uWetMap.value = wetTexture;
+    shader.uniforms.uDryMap.value = dryTexture;
+    shader.uniforms.uCoverGamma.value = cfg.coverGamma;
+    shader.uniforms.uShade.value.set(cfg.shadeFloor, cfg.shadeRange);
+    shader.uniforms.uChroma.value = cfg.chroma;
   }
 }

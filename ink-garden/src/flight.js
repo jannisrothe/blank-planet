@@ -13,9 +13,9 @@ export function createFlight(camera, domElement, { moth, onLock, onUnlock, onKey
   const state = {
     pos: new THREE.Vector3(0, heightAt(0, 0) + 34, 0),
     yaw: 0,
-    pitch: -0.16,
+    pitch: -0.34,
     targetYaw: 0,
-    targetPitch: -0.16,
+    targetPitch: -0.34,
     speed: cfg.driftSpeed,
     locked: false,
   };
@@ -100,14 +100,17 @@ export function createFlight(camera, domElement, { moth, onLock, onUnlock, onKey
     camera.position.lerp(want, ck);
     camera.position.y = Math.max(camera.position.y,
       heightAt(camera.position.x, camera.position.z) + 2.0);
-    camera.lookAt(state.pos.x, state.pos.y + 0.6, state.pos.z);
+    // Aim slightly below the moth, so the ground you are painting fills the frame.
+    camera.lookAt(state.pos.x, state.pos.y - 2.2, state.pos.z);
   }
 
   return {
     update,
     input,
     state,
-    lock: () => domElement.requestPointerLock(),
+    // Chrome rejects this outright in some contexts (and always under automation).
+    // Swallow it: the page is still usable, it just is not mouse-steered.
+    lock: () => Promise.resolve(domElement.requestPointerLock()).catch(() => {}),
     get isLocked() { return state.locked; },
   };
 }

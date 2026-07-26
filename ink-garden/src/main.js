@@ -3,9 +3,10 @@ import { createWorld } from './world.js';
 import { createGround, heightAt } from './terrain.js';
 import { createFlight } from './flight.js';
 import { Colliders } from './collision.js';
-import { InkMap } from './ink/inkMap.js';
+import { PigmentSim } from './ink/pigmentSim.js';
 import { applyInk, updateInkUniforms } from './ink/inkMaterial.js';
 import { rng } from './random.js';
+import { samplePigment } from './palette.js';
 import { createFlowers } from './props/flowers.js';
 import { createGrass } from './props/grass.js';
 import { createTrees } from './props/trees.js';
@@ -22,7 +23,7 @@ const debugModule = DEBUG ? await import('./debug.js') : null;
 debugModule?.applyDensityOverrides(density);
 
 const { renderer, scene, camera } = createWorld();
-const inkMap = new InkMap(renderer);
+const pigment = new PigmentSim(renderer);
 const post = createComposer(renderer, scene, camera);
 
 const ground = createGround();
@@ -56,8 +57,27 @@ const hint = document.getElementById('hint');
 const ambience = new Ambience(camera);
 ambience.load().catch((e) => console.warn('[audio] could not load the ambient bed:', e.message));
 
+// Pigment falls from the moth, so a drop lands beneath it, slightly ahead along the
+// heading the way anything released from a moving body would. Aiming down a crosshair
+// was the first attempt and it was unusable: the chase camera looks near-horizontal, so
+// the ray met the ground about 200 units away, well outside the frame.
+const dropColor = new THREE.Color();
+function dropPoint() {
+  const p = flight.state.pos;
+  const lead = Math.min(18, flight.state.speed * 0.9);
+  return {
+    x: p.x - Math.sin(flight.state.yaw) * lead,
+    z: p.z - Math.cos(flight.state.yaw) * lead,
+  };
+}
+function dropPigment() {
+  const { x, z } = dropPoint();
+  pigment.drop(x, z, samplePigment(Math.random, dropColor));
+}
+
 const flight = createFlight(camera, renderer.domElement, {
   moth,
+  onDrop: dropPigment,
   onLock: () => {
     overlay.classList.add('hidden');
     hint.classList.remove('hidden');
@@ -74,12 +94,17 @@ const flight = createFlight(camera, renderer.domElement, {
       : 'click to drop pigment · W and S change speed';
   },
 });
-overlay.addEventListener('click', () => flight.lock());
+overlay.addEventListener('click', () => {
+  // Start audio on the click itself. It is the real user gesture, and pointer lock can
+  // be refused independently, which would otherwise leave the page silent.
+  ambience.start();
+  flight.lock();
+});
 
 const timer = new THREE.Timer();
 timer.connect(document); // pauses on tab switch, so returning does not dump one huge dt
 
-const debug = debugModule?.createDebug({ post, inkMap, ambience }) ?? null;
+const debug = debugModule?.createDebug({ post, pigment, ambience }) ?? null;
 
 let frameCount = 0;
 
@@ -91,13 +116,13 @@ function frame() {
   const elapsed = timer.getElapsed();
 
   flight.update(dt, elapsed);
-  if (!api.freeze) inkMap.update(flight.state.pos.x, flight.state.pos.z, dt, elapsed);
-  updateInkUniforms(inkMap.texture);
+  if (!api.freeze) pigment.update(dt);
+  updateInkUniforms(pigment.wetTexture, pigment.dryTexture);
 
   // Async readback, so this never stalls the pipeline. A few frames of latency is
   // inaudible, and sampling every frame would be pointless at a 0.6s smoothing time.
-  if (++frameCount % 8 === 0) inkMap.sampleWetness();
-  ambience.update(inkMap.wetness);
+  if (++frameCount % 8 === 0) pigment.sampleWetness();
+  ambience.update(pigment.wetness);
 
   post.render(dt);
   debug?.end();
@@ -106,8 +131,8 @@ function frame() {
 // Hooks for scripts/measure.mjs. `freeze` lets the harness wipe the ink and confirm
 // the world really does disappear, without the loop immediately re-inking underfoot.
 const api = {
-  renderer, scene, camera, inkMap, colliders, post, ambience, moth, flight,
-  input: flight.input, heightAt, freeze: false,
+  renderer, scene, camera, pigment, colliders, post, ambience, moth, flight,
+  input: flight.input, heightAt, dropPigment, dropPoint, freeze: false,
 };
 globalThis.__inkGarden = api;
 
