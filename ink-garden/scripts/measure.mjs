@@ -190,35 +190,39 @@ async function main() {
   // Chrome under automation sometimes grants the lock on its own before we get here,
   // in which case the overlay is already gone and clicking it would hang.
   await page.bringToFront();
-  // Chrome under automation sometimes hands out a lock with no gesture behind it, and
-  // that phantom lock gets revoked mid-run. Drop it and take a real one instead.
-  if (await page.evaluate(() => window.__probe.locked())) {
-    await page.evaluate(() => document.exitPointerLock());
-    await page.waitForTimeout(1600); // Chrome refuses a re-lock straight after an exit
-  }
   const overlay = page.locator('#overlay');
-  await ((await overlay.isVisible()) ? overlay : page.locator('canvas')).click();
-  await page.waitForTimeout(900);
+  if (await overlay.isVisible()) await overlay.click();
+  await page.waitForTimeout(600);
 
-  const locked = await page.evaluate(() => window.__probe.locked());
-  if (!locked) console.warn('  ! pointer lock not held; movement will not apply\n');
+  // Chrome revokes pointer lock on its own within seconds under automation, even with
+  // no input at all, so the harness drives movement through the app's test input hook
+  // instead. Without this the player never moves and every gate passes vacuously.
+  const driven = await page.evaluate(() => {
+    const i = globalThis.__inkGarden?.input;
+    if (!i) return false;
+    i.active = true;
+    return true;
+  });
+  if (!driven) console.warn('  ! no input hook; falling back to pointer lock\n');
 
   await page.evaluate(() => window.__probe.start());
   if (WALK) {
-    await page.keyboard.down('KeyW');
     // Constant yaw, so the player walks a circle of roughly 40 units instead of
     // sprinting into the world edge and staring at empty space for half the run.
-    // PointerLockControls applies 0.002 rad per unit of movementX.
-    for (let i = 0; i < SECONDS * 10; i++) {
-      await page.evaluate(() => window.__probe.look(17.5, 0));
-      await page.waitForTimeout(100);
-    }
-    await page.keyboard.up('KeyW');
+    await page.evaluate(async (seconds) => {
+      const g = globalThis.__inkGarden;
+      g.input.forward = 1;
+      const t0 = performance.now();
+      while (performance.now() - t0 < seconds * 1000) {
+        await new Promise((r) => requestAnimationFrame(r));
+        g.camera.rotateY(-0.006);
+      }
+      g.input.forward = 0;
+    }, SECONDS);
   } else {
     await page.waitForTimeout(SECONDS * 1000);
   }
   const r = await page.evaluate(() => window.__probe.stop());
-  const stillLocked = await page.evaluate(() => window.__probe.locked());
   const whiteWalk = await whiteness(page, uncapped);
 
   // The core promise: with no ink on the paper you cannot see the world at all.
@@ -235,6 +239,36 @@ async function main() {
     await page.evaluate(() => { globalThis.__inkGarden.freeze = false; });
   }
 
+  // Collision: aim the player at the nearest tree and walk into it. If the trunk is
+  // solid the distance bottoms out at the collider radius and never goes below it.
+  let collide = null;
+  if (!uncapped && (await page.evaluate(() => !!globalThis.__inkGarden?.colliders))) {
+    collide = await page.evaluate(async () => {
+      const g = globalThis.__inkGarden;
+      const p = g.camera.position;
+      // nearest collider that is not directly underfoot
+      let best = null;
+      for (const bucket of g.colliders.grid.values()) {
+        for (const c of bucket) {
+          const d = Math.hypot(c.x - p.x, c.z - p.z);
+          if (d > 2 && (!best || d < best.d)) best = { c, d };
+        }
+      }
+      if (!best) return null;
+      g.camera.lookAt(best.c.x, p.y, best.c.z);
+      g.input.forward = 1;
+
+      let min = Infinity;
+      const t0 = performance.now();
+      while (performance.now() - t0 < 4000) {
+        await new Promise((r) => requestAnimationFrame(r));
+        min = Math.min(min, Math.hypot(g.camera.position.x - best.c.x, g.camera.position.z - best.c.z));
+      }
+      g.input.forward = 0;
+      return { radius: best.c.r, closest: min, start: best.d };
+    });
+  }
+
   const shot = value('shot', null);
   if (shot && !uncapped) await page.screenshot({ path: shot });
 
@@ -242,9 +276,18 @@ async function main() {
   console.log(`  fps          p50 ${fps(r.p50)}   p95 ${fps(r.p95)}`);
   console.log(`  draw calls   ${r.drawCalls}`);
   console.log(`  samples      ${r.samples}`);
-  console.log(`  pointer lock ${locked ? 'acquired' : 'NOT ACQUIRED'}${locked && !stillLocked ? ' but LOST during walk (numbers are suspect)' : ''}`);
+  console.log(`  input        ${driven ? 'driven directly (pointer lock is unreliable in automation)' : 'pointer lock'}`);
   if (Number.isFinite(whiteIdle)) {
     console.log(`  white pixels ${(whiteIdle * 100).toFixed(1)}% before entering -> ${(whiteWalk * 100).toFixed(1)}% while walking`);
+  }
+  if (collide) {
+    const floor = collide.radius + 0.45; // collider radius + player radius
+    // A run that never got near the trunk proves nothing, so say so rather than pass.
+    const reached = collide.closest < collide.start - 1;
+    const pass = reached && collide.closest >= floor - 0.05;
+    const verdict = !reached ? 'INCONCLUSIVE (never reached the tree)'
+      : pass ? 'PASS' : 'FAIL (walked through)';
+    console.log(`  collision    approached from ${collide.start.toFixed(1)} to ${collide.closest.toFixed(2)}, floor ${floor.toFixed(2)}  ${verdict}`);
   }
   if (Number.isFinite(whiteBlank)) {
     const pass = whiteBlank > 0.99;

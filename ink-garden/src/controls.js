@@ -21,12 +21,18 @@ export function createControls(camera, domElement, { colliders, onLock, onUnlock
 
   camera.position.set(0, heightAt(0, 0) + EYE_HEIGHT, 0);
 
-  function update(dt) {
-    if (!controls.isLocked) return;
+  // Chrome revokes pointer lock on its own within seconds under automation, so the
+  // measurement harness cannot drive the player through it. This lets a test push
+  // movement directly. Inert unless something sets `active`.
+  const input = { active: false, forward: 0, right: 0, run: false };
 
-    const forward = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0);
-    const right = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
-    const speed = (keys.ShiftLeft || keys.ShiftRight ? RUN_SPEED : WALK_SPEED) * dt;
+  function update(dt) {
+    if (!controls.isLocked && !input.active) return;
+
+    const forward = input.active ? input.forward : (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0);
+    const right = input.active ? input.right : (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
+    const running = input.active ? input.run : (keys.ShiftLeft || keys.ShiftRight);
+    const speed = (running ? RUN_SPEED : WALK_SPEED) * dt;
 
     // Normalise so walking diagonally is not faster than walking straight.
     const len = Math.hypot(forward, right) || 1;
@@ -42,5 +48,5 @@ export function createControls(camera, domElement, { colliders, onLock, onUnlock
     camera.position.y = heightAt(camera.position.x, camera.position.z) + EYE_HEIGHT;
   }
 
-  return { controls, update, lock: () => controls.lock() };
+  return { controls, update, input, lock: () => controls.lock() };
 }

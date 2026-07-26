@@ -40,7 +40,7 @@ const colliders = new Colliders([...trees.colliders, ...rocks.colliders]);
 const overlay = document.getElementById('overlay');
 const hint = document.getElementById('hint');
 
-const { controls, update: updateControls } = createControls(camera, renderer.domElement, {
+const { controls, update: updateControls, input } = createControls(camera, renderer.domElement, {
   colliders,
   onLock: () => { overlay.classList.add('hidden'); hint.classList.remove('hidden'); },
   onUnlock: () => { overlay.classList.remove('hidden'); hint.classList.add('hidden'); },
@@ -64,7 +64,7 @@ function frame() {
 
 // Hooks for scripts/measure.mjs. `freeze` lets the harness wipe the ink and confirm
 // the world really does disappear, without the loop immediately re-inking underfoot.
-const api = { renderer, scene, camera, inkMap, colliders, freeze: false };
+const api = { renderer, scene, camera, inkMap, colliders, input, freeze: false };
 globalThis.__inkGarden = api;
 
 frame();
