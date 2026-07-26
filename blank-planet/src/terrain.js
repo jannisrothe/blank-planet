@@ -6,7 +6,7 @@ import { rng } from './random.js';
 /**
  * Single source of truth for terrain height, used for placement, the flight altitude
  * clamp and the drop raycast. The prototype had this formula written twice
- * (ink-garden-world.html:70 and :124-126), which is a drift waiting to happen.
+ * (prototype.html:70 and :124-126), which is a drift waiting to happen.
  *
  * v1 was two trig terms, which gave gentle swells and nothing to fly around. This is
  * multi-octave simplex plus a ridged octave: fbm supplies rolling landmass, the ridged

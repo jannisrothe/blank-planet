@@ -2,7 +2,7 @@ name: Deploy to Pages
 
 on:
   push:
-    branches: [v2-moth-flight, main]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -19,14 +19,14 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ink-garden
+        working-directory: blank-planet
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: ink-garden/package-lock.json
+          cache-dependency-path: blank-planet/package-lock.json
       - run: npm ci
         env:
           # playwright is only here for scripts/measure.mjs, which does not run in CI.
@@ -36,7 +36,7 @@ jobs:
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: ink-garden/dist
+          path: blank-planet/dist
 
   deploy:
     needs: build

@@ -13,10 +13,10 @@ const HEIGHT = Number(process.argv[3] ?? 150);
 const browser = await chromium.launch({ headless: false, channel: 'chrome' });
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 await page.goto('http://127.0.0.1:5173/', { waitUntil: 'load' });
-await page.waitForFunction(() => !!globalThis.__inkGarden, null, { timeout: 60000 });
+await page.waitForFunction(() => !!globalThis.__blankPlanet, null, { timeout: 60000 });
 
 const where = await page.evaluate(async (height) => {
-  const g = globalThis.__inkGarden;
+  const g = globalThis.__blankPlanet;
   g.input.active = true;
   // Crawl in a tight circle so the pigment lands in one patch instead of a long arc
   // stretched across the world, which is what makes it possible to frame the result.

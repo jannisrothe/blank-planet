@@ -6,7 +6,7 @@ import * as THREE from 'three';
  * plus saturation and lightness ranges, sampled per instance.
  *
  * This also structurally fixes the prototype's bug where one petal colour was baked
- * into a single shared texture at load (ink-garden-world.html:132-134), making all 500
+ * into a single shared texture at load (prototype.html:132-134), making all 500
  * flowers identical.
  */
 

@@ -1,4 +1,4 @@
-# Ink Garden
+# blank planet
 
 A blank canvas with an alien planet hidden in it. You drift over it as a moth and throw
 blobs of wet oil paint; each one falls, hits the ground, and bursts into a hard-edged
@@ -49,7 +49,7 @@ Three things worth knowing if you extend it:
 
 - **It does not use pointer lock.** Chrome revokes the lock within seconds under
   automation even with zero input, which silently made every gate pass while the player
-  stood still. The harness drives `__inkGarden.input` directly instead.
+  stood still. The harness drives `__blankPlanet.input` directly instead.
 - **`--uncapped` no longer measures frame cost.** The GPU work is heavy enough that the
   JS loop runs ahead of it, so rAF deltas become JS time and it reports 10,000 fps. The
   harness warns when it detects this. Trust the capped run.

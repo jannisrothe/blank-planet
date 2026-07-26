@@ -167,6 +167,6 @@ const api = {
   renderer, scene, camera, paint, droplets, colliders, post, ambience, moth, flight,
   input: flight.input, heightAt, dropPigment, freeze: false,
 };
-globalThis.__inkGarden = api;
+globalThis.__blankPlanet = api;
 
 frame();

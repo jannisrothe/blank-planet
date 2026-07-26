@@ -113,7 +113,7 @@ Each of these looked fine until something was measured or rendered side by side.
 3. Holding W in a straight line hits the world edge in 7.6 s and stares at empty space.
 4. **Chrome revokes pointer lock within seconds under automation even with no input.**
    The player never moved, so the collision gate passed while sitting 5.5 units from the
-   tree it was meant to hit. The harness drives `__inkGarden.input` directly instead.
+   tree it was meant to hit. The harness drives `__blankPlanet.input` directly instead.
 5. Playwright screenshots never resolve with `--disable-gpu-vsync`.
 
 ## Reproducing

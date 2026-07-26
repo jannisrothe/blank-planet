@@ -15,7 +15,7 @@ export function createDebug({ post: postFx, paint, ambience }) {
   Object.assign(stats.dom.style, { left: 'auto', right: '0px', top: '0px' });
   document.body.appendChild(stats.dom);
 
-  const gui = new GUI({ title: 'ink garden' });
+  const gui = new GUI({ title: 'blank planet' });
 
   const fSplat = gui.addFolder('splat');
   fSplat.add(paintCfg, 'radius', 1, 80, 0.5).name('splat size (units)');

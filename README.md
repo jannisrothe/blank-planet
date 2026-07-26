@@ -9,21 +9,21 @@ Flying alone reveals nothing.
 
 ## Where things are
 
-- `ink-garden/` — the build. Three.js, Vite, no assets beyond one audio bed; every shape
+- `blank-planet/` — the build. Three.js, Vite, no assets beyond one audio bed; every shape
   is procedural.
-- `ink-game/` — the original single-file prototype, kept for comparison and never modified.
+- `prototype/` — the original single-file prototype, kept for comparison and never modified.
 
 ## Running it
 
 ```bash
-cd ink-garden
+cd blank-planet
 npm install
 npm run dev          # add ?debug for the tuning panel
 npm run build
 npm run measure      # frame times and the behaviour gates
 ```
 
-`ink-garden/docs/results.md` has the measurements, the gates, and the list of bugs that
+`blank-planet/docs/results.md` has the measurements, the gates, and the list of bugs that
 produced confident wrong output along the way.
 
 ## Credits

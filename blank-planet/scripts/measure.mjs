@@ -4,7 +4,7 @@
  * which makes its FPS numbers useless for this project.
  *
  *   node scripts/measure.mjs --baseline      measure the original prototype
- *   node scripts/measure.mjs                 measure the current ink-garden build
+ *   node scripts/measure.mjs                 measure the current blank-planet build
  *   node scripts/measure.mjs --url <url>     measure anything else
  *
  * Flags: --seconds <n>  --no-walk  --shot <path>
@@ -146,7 +146,7 @@ const fps = (n) => (Number.isFinite(n) ? `${(1000 / n).toFixed(1)} fps` : 'n/a')
 
 async function main() {
   const baseline = flag('baseline');
-  const dir = baseline ? path.resolve(ROOT, '../ink-game') : path.join(ROOT, 'dist');
+  const dir = baseline ? path.resolve(ROOT, '../prototype') : path.join(ROOT, 'dist');
   let url = value('url', null);
   let server = null;
 
@@ -198,7 +198,7 @@ async function main() {
   // no input at all, so the harness drives movement through the app's test input hook
   // instead. Without this the player never moves and every gate passes vacuously.
   const driven = await page.evaluate(() => {
-    const i = globalThis.__inkGarden?.input;
+    const i = globalThis.__blankPlanet?.input;
     if (!i) return false;
     i.active = true;
     return true;
@@ -212,7 +212,7 @@ async function main() {
     // The moth always drifts forward, so the harness only has to steer. A constant
     // turn keeps it circling inside the world instead of pinning to the edge.
     await page.evaluate(async (seconds) => {
-      const g = globalThis.__inkGarden;
+      const g = globalThis.__blankPlanet;
       g.input.turn = 0.22;
       const t0 = performance.now();
       window.__wet = [];
@@ -227,7 +227,7 @@ async function main() {
     }, SECONDS);
   } else {
     await page.evaluate(async (seconds) => {
-      const g = globalThis.__inkGarden;
+      const g = globalThis.__blankPlanet;
       window.__wet = [];
       const t0 = performance.now();
       while (performance.now() - t0 < seconds * 1000) {
@@ -250,7 +250,7 @@ async function main() {
   if (shot && !uncapped) {
     // Paint some pigment into view first, otherwise the shot is a blank sheet.
     await page.evaluate(async () => {
-      const g = globalThis.__inkGarden;
+      const g = globalThis.__blankPlanet;
       g.input.turn = 0.06;
       // Climb first, so the shot looks out over the landscape rather than sitting in it.
       g.input.climb = 0.5;
@@ -276,18 +276,18 @@ async function main() {
   // The core promise: with no ink on the paper you cannot see the world at all.
   // Wiping the mask and looking at the same view is a direct test of that.
   let whiteBlank = NaN;
-  if (!uncapped && (await page.evaluate(() => !!globalThis.__inkGarden))) {
+  if (!uncapped && (await page.evaluate(() => !!globalThis.__blankPlanet))) {
     // Let anything still falling land first. Hiding a droplet mid-flight races with the
     // screenshot, and a single airborne blob is enough to fail this gate.
     await page.evaluate(async () => {
-      const g = globalThis.__inkGarden;
+      const g = globalThis.__blankPlanet;
       const t0 = performance.now();
       while (g.droplets?.live.length && performance.now() - t0 < 9000) {
         await new Promise((r) => requestAnimationFrame(r));
       }
     });
     await page.evaluate(() => {
-      const g = globalThis.__inkGarden;
+      const g = globalThis.__blankPlanet;
       g.paint.clear();
       // The moth is deliberately never ink-washed, so it is always visible. This gate
       // is about whether the WORLD disappears, so the moth is not part of it.
@@ -310,7 +310,7 @@ async function main() {
     if (whiteBlank <= 0.99) {
       await page.screenshot({ path: 'docs/_blankfail.png' });
       const why = await page.evaluate(() => {
-        const g = globalThis.__inkGarden;
+        const g = globalThis.__blankPlanet;
         const visible = [];
         g.scene.traverse((o) => {
           if (o.isMesh && o.visible && o.parent?.visible !== false) {
@@ -327,8 +327,8 @@ async function main() {
       console.log('  blank debug ', JSON.stringify(why));
     }
     await page.evaluate(() => {
-      globalThis.__inkGarden.freeze = false;
-      if (globalThis.__inkGarden.moth) globalThis.__inkGarden.moth.root.visible = true;
+      globalThis.__blankPlanet.freeze = false;
+      if (globalThis.__blankPlanet.moth) globalThis.__blankPlanet.moth.root.visible = true;
     });
   }
 
@@ -342,9 +342,9 @@ async function main() {
   // Paint gates. Oil covers rather than blends and never dries away, so these assert
   // behaviour rather than just checking nothing crashed.
   let bloom = null;
-  if (!uncapped && (await page.evaluate(() => !!globalThis.__inkGarden?.paint))) {
+  if (!uncapped && (await page.evaluate(() => !!globalThis.__blankPlanet?.paint))) {
     bloom = await page.evaluate(async () => {
-      const g = globalThis.__inkGarden;
+      const g = globalThis.__blankPlanet;
       const Colour = g.paint.uniforms.uColor.value.constructor;
       const Vec2 = g.paint.uniforms.uDir.value.constructor;
       const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -372,9 +372,9 @@ async function main() {
 
   // Droplets must actually fall and land, not stamp instantly.
   let fall = null;
-  if (!uncapped && (await page.evaluate(() => !!globalThis.__inkGarden?.droplets))) {
+  if (!uncapped && (await page.evaluate(() => !!globalThis.__blankPlanet?.droplets))) {
     fall = await page.evaluate(async () => {
-      const g = globalThis.__inkGarden;
+      const g = globalThis.__blankPlanet;
       // Wait out anything still falling from the beauty-shot pass, or its landing is
       // mistaken for this droplet stamping instantly.
       const settle = performance.now();
@@ -402,7 +402,7 @@ async function main() {
   let sound = null;
   if (!uncapped) {
     sound = await page.evaluate(() => {
-      const a = globalThis.__inkGarden?.ambience;
+      const a = globalThis.__blankPlanet?.ambience;
       if (!a) return null;
       a.wanted = true;
       a.update(0.0);  // blank canvas

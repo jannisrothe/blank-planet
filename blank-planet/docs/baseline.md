@@ -1,6 +1,6 @@
 # Baseline measurement — original prototype
 
-Measured 2026-07-26 against `ink-game/ink-garden-world.html`, unmodified.
+Measured 2026-07-26 against `prototype/prototype.html`, unmodified.
 
 Method: `npm run measure:baseline`. Real system Google Chrome, headed, hardware GPU,
 1280×720, 12 s walking a circle (constant yaw so the player stays inside the world instead
@@ -42,7 +42,7 @@ From the screenshot, confirming the code review:
 1. **It is gray, not white.** Trees read as solid dark silhouettes from across the map. You
    very much do see the world.
 2. **Every flower is the same blue.** One petal colour is baked into a single shared 64 px
-   canvas at `ink-garden-world.html:132-134`; the `petalColors` array is dead code.
+   canvas at `prototype.html:132-134`; the `petalColors` array is dead code.
 3. **The ground is not visible at all.** The white fog mesh covers it completely, so objects
    float in a void with no horizon and no sense of terrain.
 4. **The reveal is tiny.** Two flowers are in colour in the entire frame.
