@@ -347,9 +347,9 @@ async function main() {
       const a = globalThis.__inkGarden?.ambience;
       if (!a) return null;
       a.wanted = true;
-      a.update(0.148); // measured stationary equilibrium
+      a.update(0.0);  // blank paper: nothing wet anywhere
       const dry = { gain: a.lastGain, cutoff: a.lastCutoff };
-      a.update(0.245); // measured walking peak
+      a.update(0.60); // measured: a fresh drop peaks near 0.94 and decays
       const wet = { gain: a.lastGain, cutoff: a.lastCutoff };
       return {
         ready: a.ready,

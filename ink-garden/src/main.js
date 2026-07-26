@@ -101,7 +101,7 @@ const flight = createFlight(camera, renderer.domElement, {
   onKey: (code) => {
     if (code === 'KeyM') hint.textContent = ambience.toggleMute()
       ? 'sound off · M to unmute'
-      : 'click to drop pigment · W and S change speed';
+      : 'click to drop pigment · it bleeds, dries, and stays';
   },
 });
 overlay.addEventListener('click', () => {

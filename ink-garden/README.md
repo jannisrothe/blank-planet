@@ -1,7 +1,8 @@
 # Ink Garden
 
-A blank sheet of paper you can walk into. The world is invisible until you move through
-it, where it blooms into watercolour and then dries back to white behind you.
+A blank sheet of paper with an alien planet hidden in it. You drift over it as a moth and
+click to drop pigment; each drop blooms outward with real capillary bleed, dries, and
+stays. What you paint is permanent, so a session accumulates into something you made.
 
 Static site, no backend.
 
@@ -78,13 +79,14 @@ src/
   terrain.js       heightfield + ground; the only heightAt()
   scatter.js       seeded placement on a jittered grid
   palette.js       watercolour hue families
-  controls.js      pointer lock, WASD, ground follow
   collision.js     spatial hash + circle push-out
   audio.js         ambient bed, mixed by the ink
   debug.js         lil-gui + stats, loaded only with ?debug
-  ink/             inkMap.js, inkMaterial.js
+  flight.js        constant-drift flight, chase camera
+  ink/             pigmentSim.js, inkMaterial.js
   post/            composer.js, WatercolorEffect.js
-  props/           flowers, grass, trees, smallProps, cards
+  props/           flowers, grass, trees, smallProps, cards, moth, features
 ```
 
-Controls: WASD to move, shift to run, mouse to look, M mutes, esc to leave.
+Controls: mouse steers, **click drops pigment**, W and S change speed, M mutes, esc to
+leave. You always drift forward; there is no stall and no way to get stuck.
