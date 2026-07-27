@@ -19,7 +19,7 @@ export class Ambience {
     this.sound = new THREE.Audio(this.listener);
     this.filter = this.listener.context.createBiquadFilter();
     this.filter.type = 'lowpass';
-    this.filter.frequency.value = cfg.cutoffDry;
+    this.filter.frequency.value = cfg.reactToPaint ? cfg.cutoffDry : cfg.cutoffWet;
     this.filter.Q.value = 0.7;
     this.sound.setFilter(this.filter);
 
@@ -62,13 +62,22 @@ export class Ambience {
     g.setTargetAtTime(target, this.listener.context.currentTime, cfg.smoothing);
   }
 
+  /** Whether the mix follows how much ground has been painted. Read by the gates. */
+  get reactsToPaint() { return !!cfg.reactToPaint; }
+
   /** @param {number} coverage 0..1 of painted ground around the player */
   update(coverage) {
     if (!this.ready || !this.wanted) return;
-    // Map the measured coverage band onto 0..1. See config for where those came from.
-    const span = cfg.coverageWet - cfg.coverageDry;
-    const x = Math.max(0, Math.min(1, (coverage - cfg.coverageDry) / span));
-    const t = x * x * (3 - 2 * x); // smoothstep, so the ends ease instead of clipping
+    // Held at the open end unless the bed is set to react. The mapping below is kept
+    // rather than deleted because it is a real thing the piece can do; it just made the
+    // music drop out whenever you flew somewhere you had not painted yet.
+    let t = 1;
+    if (cfg.reactToPaint) {
+      // Map the measured coverage band onto 0..1. See config for where those came from.
+      const span = cfg.coverageWet - cfg.coverageDry;
+      const x = Math.max(0, Math.min(1, (coverage - cfg.coverageDry) / span));
+      t = x * x * (3 - 2 * x); // smoothstep, so the ends ease instead of clipping
+    }
     const gain = this.muted ? 0 : cfg.gainDry + (cfg.gainWet - cfg.gainDry) * t;
     // Cutoff moves geometrically, because pitch perception is logarithmic.
     const cutoff = cfg.cutoffDry * (cfg.cutoffWet / cfg.cutoffDry) ** t;

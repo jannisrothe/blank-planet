@@ -55,9 +55,14 @@ export const flight = {
   spawnAltitude: 75,
   groundClearance: 75,  // never descend closer than this to the terrain
   ceiling: 260,
-  // Chase camera, in the moth's local frame.
+  // Chase camera, in the moth's local frame. Directly behind the moth you look at the
+  // horizon and the ground is a strip at the bottom, which on a planet this small means
+  // most of the frame is sky. Up and over the shoulder instead: with camUp 13 and camAim
+  // 7 the view sits about 64 degrees below horizontal, so the ground fills the frame and
+  // the horizon sits near the top of it.
   camBack: 9.5,
-  camUp: 4.6,
+  camUp: 13,
+  camAim: 7,            // how far below the moth the camera looks, in world units
   camLag: 4.0,
 };
 
@@ -161,12 +166,17 @@ export const collision = {
 
 export const audio = {
   src: 'audio/paulyudin-emotional-light-piano-159833.mp3',
-  // Coverage drives the mix: sparse and muffled over blank ground, open over paint.
+
+  // The bed used to follow how much ground you had painted: quiet and muffled over blank
+  // ground, opening up over colour. It meant the music dropped away every time you moved
+  // somewhere new, which reads as the sound cutting out rather than as a response. Off.
+  reactToPaint: false,
+
   gainDry: 0.15, gainWet: 0.85,
   cutoffDry: 400, cutoffWet: 18000,
   smoothing: 0.6, // seconds
 
-  // Recalibrated against measured coverage in the final pass.
+  // Recalibrated against measured coverage in the final pass. Only used when reacting.
   coverageDry: 0.02,
   coverageWet: 0.55,
 };

@@ -55,6 +55,9 @@ export function createDebug({ post: postFx, paint, ambience }) {
   fFlight.add(flightCfg, 'driftSpeed', 1, 30, 0.5).name('drift speed');
   fFlight.add(flightCfg, 'groundClearance', 5, 400, 1).name('min altitude');
   fFlight.add(flightCfg, 'smoothing', 0.5, 8, 0.1).name('steering weight');
+  fFlight.add(flightCfg, 'camUp', 0, 40, 0.5).name('camera height');
+  fFlight.add(flightCfg, 'camBack', 2, 30, 0.5).name('camera distance');
+  fFlight.add(flightCfg, 'camAim', 0, 30, 0.5).name('camera look-down');
 
   const fAudio = gui.addFolder('audio');
   fAudio.add(audio, 'gainWet', 0, 1, 0.01).name('volume when wet');

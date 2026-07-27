@@ -287,6 +287,30 @@ frame for the whole run; it also records only ~520 samples in a 12-second window
 fps would give ~720. Treat its p50 and its draw-call count as real and its p95 as an upper
 bound. This is not fixed, only identified.
 
+### Camera, and a bed that stopped dropping out
+
+The chase camera sat 4.6 units above the moth and looked 2.2 below it, which on a plane
+was fine and on a radius-180 ball meant most of the frame was sky: the horizon is close,
+so anything near eye level is mostly space. It sits at 13 now and aims 7 below, putting
+the look direction about 64 degrees under the local horizontal. `camUp`, `camBack` and
+`camAim` all have sliders, since where the horizon should sit is a taste call.
+
+The ambient bed followed painted coverage: quiet and muffled over blank ground, open over
+colour. On a plane you painted roughly where you were, so it tracked. On a ball you fly
+somewhere new every few seconds and the music kept dropping out, which reads as the sound
+failing rather than as a response. `audio.reactToPaint` is off and the mix is held at the
+open end. The mapping is kept rather than deleted; it is a real thing the piece can do.
+
+**The audio gate was computing its result and throwing it away.** Nothing printed it, so a
+bed that never started would have passed every run since it was written. It prints now,
+and asserts both that the context is running and that the mix matches what
+`reactToPaint` says it should be:
+
+```
+  audio        161s bed, running, playing  PASS
+  audio mix    blank 0.85@18000Hz -> painted 0.85@18000Hz  PASS
+```
+
 ## Bugs that produced confident, wrong output
 
 Each of these looked fine until something was measured or rendered side by side.
@@ -340,7 +364,11 @@ Each of these looked fine until something was measured or rendered side by side.
    set at construction, so both arms paid for it and the results came back contradictory
    -- contour-off measuring slower than contour-on. Contradictory ordering is the tell
    that an A/B is measuring noise, not the thing named in the label.
-14. **The entry screen rendered from the world origin.** `flight.update()` returns early
+14. **A gate that was computed and never printed.** The audio check ran every time,
+   assembled a result, and returned it into a variable nothing read. A silent bed would
+   have passed every run for as long as it had existed. Collecting a measurement is not
+   the same as asserting on it.
+15. **The entry screen rendered from the world origin.** `flight.update()` returns early
    until the player enters, so it never placed the camera, and the first thing you saw was
    the view from inside the ground. It went unnoticed while the world was small; at a
    300-unit spawn the two views have nothing in common.

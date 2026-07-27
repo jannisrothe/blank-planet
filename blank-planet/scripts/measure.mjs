@@ -539,6 +539,7 @@ async function main() {
     sound = await page.evaluate(() => {
       const a = globalThis.__blankPlanet?.ambience;
       if (!a) return null;
+      const cfgReact = a.reactsToPaint;
       a.wanted = true;
       a.update(0.0);  // blank canvas
       const dry = { gain: a.lastGain, cutoff: a.lastCutoff };
@@ -549,6 +550,7 @@ async function main() {
         playing: a.sound.isPlaying,
         state: a.listener.context.state,
         seconds: a.sound.buffer?.duration ?? 0,
+        reactive: !!cfgReact,
         dry, wet,
       };
     });
@@ -569,6 +571,18 @@ async function main() {
   console.log(`  input        ${driven ? 'driven directly (pointer lock is unreliable in automation)' : 'pointer lock'}`);
   if (Number.isFinite(whiteIdle)) {
     console.log(`  white pixels ${(whiteIdle * 100).toFixed(1)}% before entering -> ${(whiteWalk * 100).toFixed(1)}% while walking`);
+  }
+  if (sound) {
+    // This was being computed and thrown away: nothing printed it, so a silent bed would
+    // have passed every run.
+    const running = sound.ready && sound.playing && sound.state === 'running';
+    // The bed is held flat on purpose now. It used to drop away over unpainted ground,
+    // which reads as the sound cutting out rather than as a response to anything.
+    const flat = Math.abs(sound.wet.gain - sound.dry.gain) < 0.001
+      && Math.abs(sound.wet.cutoff - sound.dry.cutoff) < 1;
+    const asWanted = sound.reactive ? !flat : flat;
+    console.log(`  audio        ${sound.seconds.toFixed(0)}s bed, ${sound.state}${sound.playing ? ', playing' : ', NOT PLAYING'}  ${running ? 'PASS' : 'FAIL (silent)'}`);
+    console.log(`  audio mix    blank ${sound.dry.gain.toFixed(2)}@${sound.dry.cutoff.toFixed(0)}Hz -> painted ${sound.wet.gain.toFixed(2)}@${sound.wet.cutoff.toFixed(0)}Hz  ${asWanted ? 'PASS' : `FAIL (expected ${sound.reactive ? 'the mix to follow coverage' : 'a flat mix'})`}`);
   }
   if (alt) {
     const pass = alt.min > 0;

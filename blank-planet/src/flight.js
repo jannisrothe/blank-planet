@@ -91,7 +91,7 @@ export function createFlight(camera, domElement, { moth, colliders, onLock, onUn
       .addScaledVector(state.forward, -cfg.camBack);
     if (instant) camera.position.copy(_camWant);
     camera.up.copy(state.up);
-    _look.copy(state.pos).addScaledVector(state.up, -2.2);
+    _look.copy(state.pos).addScaledVector(state.up, -cfg.camAim);
     camera.lookAt(_look);
   }
   placeCamera(true);
@@ -162,7 +162,7 @@ export function createFlight(camera, domElement, { moth, colliders, onLock, onUn
     const camSurface = radiusAt(camera.position) + 2.0;
     if (camera.position.length() < camSurface) camera.position.setLength(camSurface);
     camera.up.copy(state.up);
-    _look.copy(state.pos).addScaledVector(state.up, -2.2);
+    _look.copy(state.pos).addScaledVector(state.up, -cfg.camAim);
     camera.lookAt(_look);
   }
 
