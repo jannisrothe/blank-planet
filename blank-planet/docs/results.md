@@ -194,6 +194,59 @@ cadence, and flags the whole run when it comes back under 50 fps:
 The lesson is the same one as gate 5, one level up: a number that cannot move is not a
 measurement, and "it did not change" is only evidence if something *could* have changed.
 
+## v6 (a planet you can fly around)
+
+The 640x640 plane clamped six units inside its own edge, so there was nothing to
+circumnavigate. `heightAt(x, z)` became `radiusAt(dir)` and everything followed from
+that: the ground is an icosphere displaced along its own normals, up is `normalize(pos)`,
+gravity points at the centre, props are placed on a Fibonacci spiral and stood upright by
+a per-spot quaternion, and the world-bounds clamp is gone.
+
+| | plane | sphere |
+|---|---|---|
+| Extent | 640 x 640, hard edge | radius 180, no edge |
+| Surface area | 409,600 | 407,150 (the radius was chosen for this) |
+| Cruise altitude | 200 | 50 |
+| Ground mesh | 400² plane, 320k tris | icosphere detail 7, 328k tris |
+| fps p50 / p95 | 59.9 / 56.8 | **59.9 / 56.5** |
+
+Two new gates, because neither is something a screenshot can show:
+
+| Gate | Result |
+|---|---|
+| Lap | held a heading and came back within **1 unit** after 84 s |
+| Polar splat | pole/equator painted area **0.976** |
+
+### Splats do not distort at the poles
+
+The map is still one equirectangular 2048² texture, which would normally smear a splat
+into a band as it approached a pole. It does not, because the splat shader measures the
+**angle** between each texel's own direction and the splat centre rather than a distance
+in texture space. The polar gate is what holds that: it stamps at the pole and at the
+equator and compares the painted area, weighting each row by cos(latitude) since equirect
+rows near a pole cover far less surface.
+
+Two details fall out: a splat overlapping the ±180° meridian is drawn a second time offset
+by one texture width, and the bounding-box quad has to widen in longitude by 1/cos(lat).
+
+### The stall was a buffer usage hint
+
+p95 came in at 9.3 fps against a 59.9 fps display. The first A/B blamed the post pass, and
+was wrong: it toggled `uContour` at runtime, which skips the shader branch but leaves the
+depth-texture machinery in place, so it could not separate the two. Removing the depth
+attribute at build time moved p95 from 72 ms to 52.7 ms -- real, but not the cause.
+
+It was `InstancedMesh.instanceMatrix` on the two animated lifeform layers. They are
+rewritten every frame and the buffer was still marked `StaticDrawUsage`, so the driver
+orphaned and reallocated its storage each time. That is invisible in a p50 and shows up as
+an occasional 200 ms frame. One `setUsage(DynamicDrawUsage)` took p95 from 72 ms to
+17.7 ms.
+
+The intermediate readings that pointed at the post pass were also partly GC noise from a
+load that allocated four objects per scatter point across ninety thousand points; `scatter`
+now returns a direction, a quaternion and a radius, and derives the world position rather
+than storing it.
+
 ## Bugs that produced confident, wrong output
 
 Each of these looked fine until something was measured or rendered side by side.
@@ -242,7 +295,12 @@ Each of these looked fine until something was measured or rendered side by side.
    column above it, and a drop aimed at a creature passed through. Both halves of the same
    omission, and neither showed up in any gate: everything was still white before you
    painted and coloured after, which is all the gates were asking.
-13. **The entry screen rendered from the world origin.** `flight.update()` returns early
+13. **An A/B that could not distinguish its two arms.** Runtime `uContour = 0` was used to
+   measure "the contour off", but the depth buffer is attached by an effect *attribute*
+   set at construction, so both arms paid for it and the results came back contradictory
+   -- contour-off measuring slower than contour-on. Contradictory ordering is the tell
+   that an A/B is measuring noise, not the thing named in the label.
+14. **The entry screen rendered from the world origin.** `flight.update()` returns early
    until the player enters, so it never placed the camera, and the first thing you saw was
    the view from inside the ground. It went unnoticed while the world was small; at a
    300-unit spawn the two views have nothing in common.

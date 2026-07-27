@@ -69,14 +69,15 @@ export function createRocks(count, rand) {
   const colour = new THREE.Color();
   const colliders = [];
 
+  const local = new THREE.Quaternion();
   spots.forEach((s, i) => {
     const k = 0.5 + rand() * 1.1;
     e.set(rand() * 0.5, rand() * Math.PI * 2, rand() * 0.5);
-    pos.set(s.x, s.y + k * 0.18, s.z);
+    pos.copy(s.dir).multiplyScalar(s.radius + k * 0.18);
     scl.set(k, k * (0.5 + rand() * 0.4), k);
-    mesh.setMatrixAt(i, m.compose(pos, q.setFromEuler(e), scl));
+    mesh.setMatrixAt(i, m.compose(pos, q.copy(s.quat).multiply(local.setFromEuler(e)), scl));
     mesh.setColorAt(i, sample('rock', rand, colour));
-    colliders.push({ x: s.x, z: s.z, r: col.rockRadius * k });
+    colliders.push({ dir: s.dir, r: col.rockRadius * k });
   });
 
   mesh.instanceMatrix.needsUpdate = true;

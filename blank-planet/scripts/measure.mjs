@@ -248,7 +248,7 @@ async function main() {
         await new Promise((r) => requestAnimationFrame(r));
         window.__wet.push(g.paint.coverage);
         const p = g.flight.state.pos;
-        window.__alt.push(p.y - g.heightAt(p.x, p.z));
+        window.__alt.push(g.altitudeAt(p));
       }
       g.input.turn = 0;
     }, SECONDS);
@@ -323,13 +323,17 @@ async function main() {
       // passes "no pigment" for the wrong reason and fails "contours" for the wrong
       // reason. Flattening the mountains was what exposed it -- the horizon dropped out
       // of frame and the contour reading fell from 7% to 0.26% with nothing wrong.
-      if (g.flight && g.camera && g.heightAt) {
+      if (g.flight && g.camera && g.radiusAt) {
         g.input.active = false;
         g.flight.state.locked = false;
-        const p = g.flight.state.pos;
-        const ground = g.heightAt(p.x, p.z);
-        g.camera.position.set(p.x, ground + 140, p.z + 150);
-        g.camera.lookAt(p.x, ground, p.z);
+        const st = g.flight.state;
+        const surface = g.radiusAt(st.pos);
+        // Stand off along the surface and look back down at it, so the frame is ground
+        // rather than sky whatever heading the walk finished on.
+        g.camera.position.copy(st.pos).normalize().multiplyScalar(surface + 70)
+          .addScaledVector(st.forward, -90);
+        g.camera.up.copy(st.up);
+        g.camera.lookAt(st.pos.clone().normalize().multiplyScalar(surface));
       }
 
       // The moth is deliberately never ink-washed, so it is always visible. This gate
@@ -389,25 +393,29 @@ async function main() {
     bloom = await page.evaluate(async () => {
       const g = globalThis.__blankPlanet;
       const Colour = g.paint.uniforms.uColor.value.constructor;
-      const Vec2 = g.paint.uniforms.uDir.value.constructor;
+      const Vec3 = g.paint.uniforms.uCentreDir.value.constructor;
       const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      // Somewhere on the equator. The splat takes a world position now, not an x/z pair.
+      const spot = new Vec3(1, 0, 0);
+      const at = spot.clone().multiplyScalar(g.radiusAt(spot));
+      const vel = new Vec3(0, -1, 0);
 
       (g.clearPigment ?? (() => g.paint.clear()))();
       await wait(200);
-      const before = await g.paint.sampleAt(0, 0);
+      const before = await g.paint.sampleAt(spot);
 
-      g.paint.splat(0, 0, new Colour(1, 0, 1), new Vec2(1, 0), 1);
+      g.paint.splat(at, new Colour(1, 0, 1), vel, 1);
       await wait(600);
-      const landed = await g.paint.sampleAt(0, 0);
+      const landed = await g.paint.sampleAt(spot);
 
       await wait(9000);
-      const later = await g.paint.sampleAt(0, 0);
+      const later = await g.paint.sampleAt(spot);
 
       // Cyan straight over the magenta: oil covers, so the result should read cyan,
       // not the violet an averaging model would produce.
-      g.paint.splat(0, 0, new Colour(0, 1, 1), new Vec2(1, 0), 1);
+      g.paint.splat(at, new Colour(0, 1, 1), vel, 1);
       await wait(600);
-      const over = await g.paint.sampleAt(0, 0);
+      const over = await g.paint.sampleAt(spot);
 
       return { before, landed, later, over };
     });
@@ -438,6 +446,79 @@ async function main() {
         flightMs: Math.round(performance.now() - t0),
         landed: g.paint.splats > before,
       };
+    });
+  }
+
+  // The whole point of the sphere: hold a heading and you come back. Nothing about a
+  // screenshot can show this, and a flat world with a wrap-around hack would fail it by
+  // drifting, so it is worth its own gate.
+  let lap = null;
+  if (!uncapped && (await page.evaluate(() => !!globalThis.__blankPlanet?.radiusAt))) {
+    lap = await page.evaluate(async () => {
+      const g = globalThis.__blankPlanet;
+      const st = g.flight.state;
+      g.input.active = true;
+      g.input.turn = 0;
+      g.input.trim = 0;
+      // Start from a known state. The walk above leaves an accumulated pending yaw and
+      // whatever speed its trim wandered to, and inheriting either makes this measure
+      // the walk rather than the geometry.
+      st.turn = 0;
+      st.speed = 20;
+      // Nose level. The ground-clearance rule pitches up whenever it clips the floor and
+      // nothing pulls it back, so a long flight climbs; that is a separate question.
+      st.pitch = 0;
+      st.targetPitch = 0;
+      const start = st.pos.clone();
+      let closest = Infinity;
+      let at = 0;
+      const t0 = performance.now();
+      while (performance.now() - t0 < 100000) {
+        await new Promise((r) => requestAnimationFrame(r));
+        st.targetPitch = 0;
+        st.speed = 20;
+        const dt = performance.now() - t0;
+        if (dt > 25000) {
+          const d = st.pos.distanceTo(start);
+          if (d < closest) { closest = d; at = dt; }
+        }
+      }
+      g.input.active = false;
+      return { closest: Math.round(closest), seconds: Math.round(at / 1000) };
+    });
+  }
+
+  // A splat must be as round at the pole as at the equator. The map is equirectangular,
+  // so measuring 2D distance in it would smear a polar splat across the whole width;
+  // the shader measures angle instead, and this is what proves it.
+  let poles = null;
+  if (!uncapped && (await page.evaluate(() => !!globalThis.__blankPlanet?.paint))) {
+    poles = await page.evaluate(async () => {
+      const g = globalThis.__blankPlanet;
+      const V = g.flight.state.pos.constructor;
+      const C = g.scene.background.constructor ?? Object;
+      const area = async (dir) => {
+        g.paint.clear();
+        const at = dir.clone().multiplyScalar(g.radiusAt(dir));
+        g.paint.splat(at, new C(0xff00ff), new V(1, 0, 0), 1);
+        await new Promise((r) => requestAnimationFrame(r));
+        const S = 2048;
+        const buf = new Uint8Array(S * S * 4);
+        await g.renderer.readRenderTargetPixelsAsync(g.paint.target, 0, 0, S, S, buf);
+        // Weight each row by cos(latitude): equirect rows near a pole cover far less
+        // actual surface, so raw texel counts would say a polar splat is enormous.
+        let a = 0;
+        for (let y = 0; y < S; y++) {
+          const w = Math.cos((y / S - 0.5) * Math.PI);
+          for (let x = 0; x < S; x++) if (buf[(y * S + x) * 4 + 3] > 8) a += w;
+        }
+        return a;
+      };
+      const equator = await area(new V(1, 0, 0));
+      const pole = await area(new V(0, 1, 0));
+      g.paint.clear();
+      return { equator: Math.round(equator), pole: Math.round(pole),
+               ratio: Number((pole / Math.max(equator, 1)).toFixed(3)) };
     });
   }
 
@@ -502,6 +583,14 @@ async function main() {
   if (fall) {
     const ok = fall.airborneAfterAFrame > 0 && !fall.stampedImmediately && fall.landed;
     console.log(`  droplet      airborne ${fall.airborneAfterAFrame}, fell for ${fall.flightMs}ms, ${fall.landed ? 'landed' : 'NEVER LANDED'}  ${ok ? 'PASS' : 'FAIL (did not travel before splatting)'}`);
+  }
+  if (lap) {
+    const ok = lap.closest < 60;
+    console.log(`  lap          held a heading and came back within ${lap.closest} units after ${lap.seconds}s  ${ok ? 'PASS' : 'FAIL (heading drifts, or the world does not wrap)'}`);
+  }
+  if (poles) {
+    const ok = poles.ratio > 0.85 && poles.ratio < 1.18;
+    console.log(`  polar splat  pole/equator painted area ${poles.ratio}  ${ok ? 'PASS' : 'FAIL (splats distort toward the poles)'}`);
   }
   if (blank && Number.isFinite(blank.coloured)) {
     // The premise moved. It used to be "with the ink wiped the frame is pure white",

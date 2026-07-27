@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { applyInk } from '../ink/inkMaterial.js';
 import { scatter } from '../scatter.js';
-import { heightAt } from '../terrain.js';
 
 /**
  * The things that make this read as somewhere else: arches, grown towers, crystal
@@ -27,19 +26,27 @@ function merge(parts) {
   return mergeGeometries(parts.map((g) => (g.index ? g.toNonIndexed() : g)));
 }
 
-/** Builds an InstancedMesh from per-instance transforms. */
+/**
+ * Builds an InstancedMesh from per-instance transforms.
+ *
+ * `alt` is a radial offset from the surface, and the spot's quaternion stands the prop up
+ * on the ball. Each item's own Euler is multiplied onto that rather than replacing it, so
+ * the randomisation these props already had survives, re-based onto the local normal.
+ */
 function build(geo, material, items, frustumCulled = false) {
   const mesh = new THREE.InstancedMesh(geo, material, items.length);
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
+  const local = new THREE.Quaternion();
   const e = new THREE.Euler();
   const p = new THREE.Vector3();
   const s = new THREE.Vector3();
   items.forEach((it, i) => {
     e.set(it.rx ?? 0, it.ry ?? 0, it.rz ?? 0);
-    p.set(it.x, it.y, it.z);
+    q.copy(it.spot.quat).multiply(local.setFromEuler(e));
+    p.copy(it.spot.dir).multiplyScalar(it.spot.radius + (it.alt ?? 0));
     s.set(it.sx, it.sy, it.sz);
-    mesh.setMatrixAt(i, m.compose(p, q.setFromEuler(e), s));
+    mesh.setMatrixAt(i, m.compose(p, q, s));
   });
   mesh.instanceMatrix.needsUpdate = true;
   mesh.frustumCulled = frustumCulled;
@@ -56,8 +63,7 @@ export function createArches(count, rand) {
   const items = spots.map((s) => {
     const k = 14 + rand() * 46;
     return {
-      x: s.x, z: s.z,
-      y: heightAt(s.x, s.z) - k * 0.06,
+      spot: s, alt: -k * 0.06,
       sx: k, sy: k * (0.8 + rand() * 0.9), sz: k * (0.5 + rand() * 0.5),
       ry: rand() * Math.PI * 2,
       rz: (rand() - 0.5) * 0.3,
@@ -90,10 +96,11 @@ export function createGrowths(count, rand) {
     const height = 10 + rand() * 34;
     const sy = height / GROWTH_BASE_HEIGHT;
     const girth = sy * (0.55 + rand() * 0.5);
-    const base = heightAt(s.x, s.z) - 0.4;
-    if (height > 16) colliders.push({ x: s.x, z: s.z, r: girth * 1.1, yTop: base + height });
+    if (height > 16) {
+      colliders.push({ dir: s.dir, r: girth * 1.1, rTop: s.radius - 0.4 + height });
+    }
     return {
-      x: s.x, z: s.z, y: base,
+      spot: s, alt: -0.4,
       sx: girth, sy, sz: girth,
       ry: rand() * Math.PI * 2,
       rz: (rand() - 0.5) * 0.14,
@@ -114,10 +121,11 @@ export function createSpires(count, rand) {
     const height = 6 + rand() * 32;
     const sy = height / SPIRE_BASE_HEIGHT;
     const girth = sy * (0.28 + rand() * 0.34);
-    const base = heightAt(s.x, s.z);
-    if (height > 16) colliders.push({ x: s.x, z: s.z, r: girth * 0.7, yTop: base + height * 0.5 });
+    if (height > 16) {
+      colliders.push({ dir: s.dir, r: girth * 0.7, rTop: s.radius + height * 0.5 });
+    }
     return {
-      x: s.x, z: s.z, y: base + height * 0.34,
+      spot: s, alt: height * 0.34,
       sx: girth, sy, sz: girth,
       ry: rand() * Math.PI * 2,
       rx: (rand() - 0.5) * 0.22,

@@ -1,48 +1,55 @@
 import * as THREE from 'three';
-import { WORLD_SIZE, flight as cfg } from './config.js';
-import { heightAt, terrainMax } from './terrain.js';
+import { flight as cfg } from './config.js';
+import { radiusAt, terrainMax, SPAWN_DIR } from './terrain.js';
 
 /**
- * The ceiling has to clear the tallest peak plus the clearance under it, or the two
- * clamps fight and the ceiling wins, holding the moth inside a mountain.
- */
-export const ceiling = Math.max(cfg.ceiling, terrainMax + cfg.groundClearance + 80);
-
-/**
- * Constant-drift flight. You are always moving forward; the mouse only chooses where
- * forward is. There is no stall and no way to get stuck, which suits a moth and suits a
- * mechanic where the real interaction is choosing where to drop pigment.
+ * Constant-drift flight over a sphere. You are always moving forward; the mouse only
+ * chooses where forward is. There is no stall, no way to get stuck, and now no edge --
+ * hold a heading and you come back to where you started.
  *
- * Replaces v1's PointerLockControls WASD walking.
+ * The state that makes that work is a **tangent** vector plus a scalar pitch, rather than
+ * a yaw/pitch Euler. On a plane, up never changes, so an Euler is enough. On a sphere, up
+ * turns underneath you as you travel: a heading fixed in world space would gradually point
+ * into the ground on one side of the planet and into space on the other, and the altitude
+ * clamp would spend the whole flight fighting it. Re-projecting the tangent onto the local
+ * tangent plane every frame is parallel transport, and it is what keeps a held heading on
+ * a great circle.
  */
+export const ceiling = terrainMax + cfg.ceiling;
+
 export function createFlight(camera, domElement, { moth, colliders, onLock, onUnlock, onKey, onDrop }) {
+  const up = SPAWN_DIR.clone();
   const state = {
-    pos: new THREE.Vector3(0, heightAt(0, 0) + cfg.spawnAltitude, 0),
-    yaw: 0,
-    pitch: -0.34,
-    targetYaw: 0,
-    targetPitch: -0.34,
+    pos: SPAWN_DIR.clone().multiplyScalar(radiusAt(SPAWN_DIR) + cfg.spawnAltitude),
+    // Any unit vector perpendicular to up will do for a starting heading.
+    tangent: new THREE.Vector3(1, 0, 0),
+    pitch: -0.10,
+    targetPitch: -0.10,
+    turn: 0,          // pending yaw from the mouse, applied about the local up
     speed: cfg.driftSpeed,
     locked: false,
+    up,
+    forward: new THREE.Vector3(1, 0, 0),
   };
-
-  // Until the player enters, update() returns early and never touches the camera, so
-  // without this the entry screen renders from the world origin: down on the ground,
-  // nowhere near the moth. Put it where the chase camera will be.
-  camera.position.set(state.pos.x, state.pos.y + cfg.camUp, state.pos.z + cfg.camBack);
-  camera.lookAt(state.pos.x, state.pos.y - 2.2, state.pos.z);
 
   // Inert unless a test sets `active`. Chrome revokes pointer lock within seconds under
   // automation, so the harness cannot drive the player through it.
   const input = { active: false, trim: 0, turn: 0, climb: 0 };
 
   const keys = Object.create(null);
-  const forward = new THREE.Vector3();
-  const euler = new THREE.Euler(0, 0, 0, 'YXZ');
+  const _up = new THREE.Vector3();
+  const _right = new THREE.Vector3();
+  const _basis = new THREE.Matrix4();
+  const _q = new THREE.Quaternion();
+  const _camWant = new THREE.Vector3();
+  const _look = new THREE.Vector3();
+  const _back = new THREE.Vector3();
+  const _bankQ = new THREE.Quaternion();
+  const _zAxis = new THREE.Vector3(0, 0, 1);
 
   function onMouseMove(e) {
     if (!state.locked) return;
-    state.targetYaw -= e.movementX * cfg.turnRate;
+    state.turn -= e.movementX * cfg.turnRate;
     state.targetPitch -= e.movementY * cfg.turnRate;
     state.targetPitch = Math.max(-cfg.maxPitch, Math.min(cfg.maxPitch, state.targetPitch));
   }
@@ -63,69 +70,108 @@ export function createFlight(camera, domElement, { moth, colliders, onLock, onUn
     if (state.locked) onDrop?.();
   });
 
+  /** Rebuild up/tangent/forward for the current position. */
+  function frame() {
+    _up.copy(state.pos).normalize();
+    state.up.copy(_up);
+    // Parallel transport: strip whatever component of the heading now points along up.
+    state.tangent.addScaledVector(_up, -state.tangent.dot(_up));
+    if (state.tangent.lengthSq() < 1e-8) state.tangent.set(1, 0, 0).cross(_up);
+    state.tangent.normalize();
+    state.forward.copy(state.tangent).multiplyScalar(Math.cos(state.pitch))
+      .addScaledVector(_up, Math.sin(state.pitch));
+  }
+  frame();
+
+  // Until the player enters, update() returns early and never touches the camera, so
+  // without this the entry screen renders from the world origin, inside the planet.
+  function placeCamera(instant) {
+    _camWant.copy(state.pos)
+      .addScaledVector(state.up, cfg.camUp)
+      .addScaledVector(state.forward, -cfg.camBack);
+    if (instant) camera.position.copy(_camWant);
+    camera.up.copy(state.up);
+    _look.copy(state.pos).addScaledVector(state.up, -2.2);
+    camera.lookAt(_look);
+  }
+  placeCamera(true);
+
   function update(dt, elapsed) {
     const driven = input.active;
     if (!state.locked && !driven) return;
 
     if (driven) {
-      state.targetYaw += input.turn * dt;
+      state.turn += input.turn * dt * 60 * cfg.turnRate * 12;
       state.targetPitch = Math.max(-cfg.maxPitch,
         Math.min(cfg.maxPitch, state.targetPitch + input.climb * dt));
     }
 
-    // Heavy smoothing on the look direction is what makes it feel like drifting rather
-    // than a first-person shooter. Frame-rate independent, so it feels the same at 30fps.
+    // Heavy smoothing is what makes it feel like drifting rather than a shooter.
+    // Frame-rate independent, so it feels the same at 30fps.
     const k = 1 - Math.exp(-cfg.smoothing * dt);
-    state.yaw += (state.targetYaw - state.yaw) * k;
+    const yaw = state.turn * k;
+    state.turn -= yaw;
     state.pitch += (state.targetPitch - state.pitch) * k;
+
+    frame();
+    if (yaw) {
+      state.tangent.applyAxisAngle(state.up, yaw).normalize();
+      state.forward.copy(state.tangent).multiplyScalar(Math.cos(state.pitch))
+        .addScaledVector(state.up, Math.sin(state.pitch));
+    }
 
     const trim = driven ? input.trim : (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0);
     state.speed = Math.max(cfg.minSpeed,
       Math.min(cfg.maxSpeed, state.speed + trim * cfg.trimRate * dt));
 
-    euler.set(state.pitch, state.yaw, 0);
-    forward.set(0, 0, -1).applyEuler(euler);
-    state.pos.addScaledVector(forward, state.speed * dt);
+    state.pos.addScaledVector(state.forward, state.speed * dt);
 
-    // Stay inside the sheet, and never clip through the land.
-    const half = WORLD_SIZE / 2 - 6;
-    state.pos.x = Math.min(half, Math.max(-half, state.pos.x));
-    state.pos.z = Math.min(half, Math.max(-half, state.pos.z));
+    // No world bounds. Going far enough in one direction is meant to bring you back.
     colliders?.resolve(state.pos);
-    // Ceiling first, floor second. The other order lets the ceiling override the ground
-    // clearance over a peak, which puts the moth inside the mountain.
-    state.pos.y = Math.min(state.pos.y, ceiling);
-    const floor = heightAt(state.pos.x, state.pos.z) + cfg.groundClearance;
-    if (state.pos.y < floor) {
-      state.pos.y = floor;
+    const surface = radiusAt(state.pos);
+    const r = state.pos.length();
+    if (r > surface + cfg.ceiling) state.pos.setLength(surface + cfg.ceiling);
+    if (r < surface + cfg.groundClearance) {
+      state.pos.setLength(surface + cfg.groundClearance);
       // Nose up rather than grinding along the ground.
       state.targetPitch = Math.max(state.targetPitch, 0.12);
     }
+    frame();
 
-    // Moth sits at the flight position, banking into the turn.
-    const bank = (state.targetYaw - state.yaw) * 7;
+    // Moth sits at the flight position, banking into the turn. Its basis is built
+    // explicitly rather than with lookAt, whose axis convention differs between cameras
+    // and everything else: travel is local -Z, up is local +Y, and right is forward x up.
+    _right.copy(state.forward).cross(state.up).normalize();
+    _up.copy(state.up);
+    _basis.makeBasis(_right, _up, _back.copy(state.forward).negate());
+    _q.setFromRotationMatrix(_basis);
+    const bank = Math.max(-0.6, Math.min(0.6, state.turn * 7));
+    moth.root.quaternion.copy(_q).multiply(_bankQ.setFromAxisAngle(_zAxis, bank));
     moth.root.position.copy(state.pos);
-    moth.root.rotation.set(state.pitch, state.yaw, Math.max(-0.6, Math.min(0.6, bank)));
     moth.flap(elapsed, Math.min(1, Math.max(0, state.pitch * 1.6 + 0.4)));
 
     // Chase camera, lagging behind so turns have some weight.
-    const back = new THREE.Vector3(0, cfg.camUp, cfg.camBack).applyEuler(euler);
-    const want = state.pos.clone().add(back);
+    _camWant.copy(state.pos)
+      .addScaledVector(state.up, cfg.camUp)
+      .addScaledVector(state.forward, -cfg.camBack);
     const ck = 1 - Math.exp(-cfg.camLag * dt);
-    camera.position.lerp(want, ck);
+    camera.position.lerp(_camWant, ck);
     // The camera trails the moth, so clearing an obstacle with the moth is not enough:
-    // the camera has to be pushed out of it too or the view ends up inside the spire.
+    // it has to be pushed out too, or the view ends up inside the spire.
     colliders?.resolve(camera.position);
-    camera.position.y = Math.max(camera.position.y,
-      heightAt(camera.position.x, camera.position.z) + 2.0);
-    // Aim slightly below the moth, so the ground you are painting fills the frame.
-    camera.lookAt(state.pos.x, state.pos.y - 2.2, state.pos.z);
+    const camSurface = radiusAt(camera.position) + 2.0;
+    if (camera.position.length() < camSurface) camera.position.setLength(camSurface);
+    camera.up.copy(state.up);
+    _look.copy(state.pos).addScaledVector(state.up, -2.2);
+    camera.lookAt(_look);
   }
 
   return {
     update,
     input,
     state,
+    /** Altitude above the surface directly below. */
+    get altitude() { return state.pos.length() - radiusAt(state.pos); },
     // Chrome rejects this outright in some contexts (and always under automation).
     // Swallow it: the page is still usable, it just is not mouse-steered.
     lock: () => Promise.resolve(domElement.requestPointerLock()).catch(() => {}),

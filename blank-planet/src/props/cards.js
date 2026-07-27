@@ -38,7 +38,7 @@ export function cardTexture(draw, size = 128) {
 /**
  * @param {object} o
  * @param {THREE.Texture} o.texture
- * @param {Array<{x:number,z:number,y:number}>} o.spots
+ * @param {ReturnType<typeof import('../scatter.js').scatter>} o.spots
  * @param {() => number} o.rand
  * @param {string} o.mix palette mix name
  * @param {[number, number]} o.size scale range
@@ -58,6 +58,7 @@ export function cardMesh({ texture, spots, rand, mix, size, yOffset = 0, lean = 
 
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
+  const local = new THREE.Quaternion();
   const e = new THREE.Euler();
   const pos = new THREE.Vector3();
   const scl = new THREE.Vector3();
@@ -67,8 +68,10 @@ export function cardMesh({ texture, spots, rand, mix, size, yOffset = 0, lean = 
     const s = spots[i];
     const k = size[0] + rand() * (size[1] - size[0]);
     e.set((rand() - 0.5) * lean, rand() * Math.PI * 2, (rand() - 0.5) * lean);
-    q.setFromEuler(e);
-    pos.set(s.x, s.y + yOffset * k, s.z);
+    // The spot's quaternion stands the card up on the ball; its own lean and yaw are
+    // multiplied on top, so they now mean "relative to this patch of ground".
+    q.copy(s.quat).multiply(local.setFromEuler(e));
+    pos.copy(s.dir).multiplyScalar(s.radius + yOffset * k);
     scl.set(k, k, k);
     m.compose(pos, q, scl);
     mesh.setMatrixAt(i, m);

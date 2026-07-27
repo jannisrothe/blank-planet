@@ -2,22 +2,26 @@
  * Every tunable lives here so the debug panel and the final bake touch one place.
  */
 
-// Eight times the ground area of the 220 world. One splat used to reveal the entire
-// visible world in a single click, which is what made the planet feel already
-// discovered before you had explored any of it.
+// The planet. 4*pi*r^2 at this radius is 640^2, the area of the plane this replaces, so
+// prop densities and feature sizes carry over unchanged. Small enough that the curvature
+// is obvious and a lap takes about seventy seconds.
+export const PLANET_RADIUS = 180;
+
+// Kept as the paint map's world extent and the unit that splat radii are quoted in.
 export const WORLD_SIZE = 640;
 
 export const terrain = {
   seed: 20260726,
-  segments: 400,       // heightfield resolution across the whole world
+  // Icosphere subdivisions. 7 is 327,680 triangles, near what the 400-segment plane
+  // carried; each step up quadruples it.
+  detail: 7,
   frequency: 0.0034,   // scaled down with the world, so landforms stay the same size
   amplitude: 26,
   ridgeAmplitude: 22,  // ridged octave, carves spines and valleys
   spawnFlat: 40,       // flattened radius around the origin so the moth spawns clear
 
-  // From 300 units up the fbm octaves average out into an even texture. This is a much
-  // broader swell underneath them: features hundreds of units across, which is the only
-  // scale that still reads as landform from cruising altitude.
+  // Frequencies are per unit of surface distance, so they mean the same thing they did on
+  // the plane: 0.0034 is a feature roughly 300 units across either way.
   basinFrequency: 0.00085,
   basinAmplitude: 54,
 
@@ -44,11 +48,11 @@ export const flight = {
   turnRate: 0.0016,     // radians per pixel of mouse movement
   maxPitch: 0.85,       // radians, keeps you from looping over the top
   smoothing: 2.4,       // higher is snappier; low values feel like heavy drifting
-  // High enough to read the planet's shape, low enough that a splat still reads as a
-  // splat. At 300 a radius-18 splat was a few pixels and painting looked like speckle.
-  spawnAltitude: 200,
-  groundClearance: 90,  // never descend closer than this to the terrain
-  ceiling: 420,
+  // Altitudes are above the surface, not above the origin. At 200 on a radius-180 planet
+  // the whole ball fits on screen and it stops being somewhere you are.
+  spawnAltitude: 50,
+  groundClearance: 25,  // never descend closer than this to the terrain
+  ceiling: 260,
   // Chase camera, in the moth's local frame.
   camBack: 9.5,
   camUp: 4.6,

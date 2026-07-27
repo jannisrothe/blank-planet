@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { WORLD_SIZE, render } from './config.js';
+import { PLANET_RADIUS, render } from './config.js';
 import { ceiling } from './flight.js';
 
 export function createWorld() {
@@ -12,11 +12,11 @@ export function createWorld() {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0xffffff);
 
-  // The far plane has to clear the diagonal of the world seen from the ceiling, or the
-  // ground is clipped away and the whole planet renders as blank paper. At a 300-unit
-  // cruise the old fixed 300 did exactly that: every gate that asked "is the page white"
-  // passed because nothing was being drawn at all.
-  const far = Math.hypot(WORLD_SIZE * Math.SQRT2, ceiling) * 1.15;
+  // The far plane has to clear the far limb of the planet seen from the ceiling, or the
+  // ground is clipped away and the whole thing renders as blank paper. A fixed 300 once
+  // did exactly that, and every gate that asked "is the page white" passed because
+  // nothing was being drawn at all.
+  const far = (ceiling + PLANET_RADIUS * 2) * 1.3;
   // Near is well clear of 0.1 to buy back depth precision over that range. The chase
   // camera never gets closer than a few units to the moth, so nothing is lost.
   const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.6, far);

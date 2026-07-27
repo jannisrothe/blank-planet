@@ -1,107 +1,127 @@
 import * as THREE from 'three';
-import { createNoise2D } from 'simplex-noise';
-import { WORLD_SIZE, terrain as cfg } from './config.js';
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { createNoise3D } from 'simplex-noise';
+import { PLANET_RADIUS, terrain as cfg } from './config.js';
 import { rng } from './random.js';
 
 /**
- * Single source of truth for terrain height, used for placement, the flight altitude
- * clamp and the drop raycast. The prototype had this formula written twice
- * (prototype.html:70 and :124-126), which is a drift waiting to happen.
+ * The planet's surface, as a single function of direction.
  *
- * v1 was two trig terms, which gave gentle swells and nothing to fly around. This is
- * multi-octave simplex plus a ridged octave: fbm supplies rolling landmass, the ridged
- * term carves the sharp spines and valleys that make flight interesting.
+ * This replaces a `heightAt(x, z)` over a 640x640 plane. The plane could not be flown
+ * around -- it clamped six units inside its own edge -- and every octave below is the same
+ * octave it was there, just sampled with 3D noise on the unit sphere instead of 2D noise
+ * on a plane. Frequencies are still per unit of surface distance, so 0.0034 means a
+ * feature about 300 units across exactly as it did before.
+ *
+ * Still the single source of truth: placement, the flight altitude clamp and the droplet
+ * impact test all come through here.
  */
 
 const noiseRand = rng(cfg.seed);
 const noise = [
-  createNoise2D(noiseRand),
-  createNoise2D(noiseRand),
-  createNoise2D(noiseRand),
-  createNoise2D(noiseRand),
-  createNoise2D(noiseRand), // basins
-  createNoise2D(noiseRand), // mountain ranges
+  createNoise3D(noiseRand),
+  createNoise3D(noiseRand),
+  createNoise3D(noiseRand),
+  createNoise3D(noiseRand), // ridges
+  createNoise3D(noiseRand), // basins
+  createNoise3D(noiseRand), // ranges
 ];
 
 /** Ridged noise: fold the signal at zero and invert, turning smooth hills into crests. */
-function ridged(x, z, freq, n) {
-  return 1 - Math.abs(n(x * freq, z * freq));
+function ridged(d, freq, n) {
+  return 1 - Math.abs(n(d.x * freq, d.y * freq, d.z * freq));
 }
 
 /**
- * Craters, fixed at module load off the terrain seed so every call to heightAt agrees.
- * Placed away from the spawn flat, and rejected if they overlap an earlier one: two
- * bowls sharing a floor read as one shapeless dent rather than two craters.
+ * Where the moth starts, and the patch that gets flattened under it. On a plane this was
+ * the origin; on a sphere it has to be a direction, and +Y is as good as any.
+ */
+export const SPAWN_DIR = new THREE.Vector3(0, 1, 0);
+
+/**
+ * Craters, fixed at module load off the terrain seed. Each is a cone around a direction
+ * rather than a circle around a point, with the same cosine ramp: it meets the
+ * surrounding ground with zero slope at both ends, so neither lip nor floor creases.
  */
 const craters = (() => {
   const r = rng(cfg.seed + 977);
   const [rMin, rMax] = cfg.craterRadius;
   const [dMin, dMax] = cfg.craterDepth;
   const out = [];
-  const half = WORLD_SIZE / 2;
-  for (let tries = 0; tries < cfg.craters * 40 && out.length < cfg.craters; tries++) {
+  for (let tries = 0; tries < cfg.craters * 60 && out.length < cfg.craters; tries++) {
+    // Uniform on the sphere. Sampling angles directly would crowd the poles.
+    const u = r() * 2 - 1;
+    const phi = r() * Math.PI * 2;
+    const s = Math.sqrt(1 - u * u);
+    const dir = new THREE.Vector3(s * Math.cos(phi), u, s * Math.sin(phi));
     const radius = rMin + r() * (rMax - rMin);
-    const x = (r() * 2 - 1) * (half - radius);
-    const z = (r() * 2 - 1) * (half - radius);
-    if (Math.hypot(x, z) < cfg.spawnFlat + radius) continue;
-    if (out.some((c) => Math.hypot(c.x - x, c.z - z) < c.radius + radius)) continue;
-    out.push({ x, z, radius, depth: dMin + r() * (dMax - dMin) });
+    const arc = radius / PLANET_RADIUS; // surface distance to angle
+    if (dir.angleTo(SPAWN_DIR) < arc + cfg.spawnFlat / PLANET_RADIUS) continue;
+    if (out.some((c) => dir.angleTo(c.dir) < arc + c.arc)) continue;
+    out.push({ dir, arc, depth: dMin + r() * (dMax - dMin) });
   }
   return out;
 })();
 
-export function heightAt(x, z) {
+const _d = new THREE.Vector3();
+
+/**
+ * Distance from the planet centre to the surface, along `dir`.
+ * @param {THREE.Vector3} dir does not need to be normalised
+ */
+export function radiusAt(dir) {
+  const d = _d.copy(dir).normalize();
   let h = 0;
   let amp = cfg.amplitude;
-  let freq = cfg.frequency;
+  let freq = cfg.frequency * PLANET_RADIUS;
 
   for (let o = 0; o < 3; o++) {
-    h += noise[o](x * freq, z * freq) * amp;
+    h += noise[o](d.x * freq, d.y * freq, d.z * freq) * amp;
     freq *= 2.07;   // not exactly 2, or the octaves line up and produce visible grids
     amp *= 0.48;
   }
 
-  h += (ridged(x, z, cfg.frequency * 1.6, noise[3]) - 0.5) * cfg.ridgeAmplitude;
-  h += noise[4](x * cfg.basinFrequency, z * cfg.basinFrequency) * cfg.basinAmplitude;
+  h += (ridged(d, cfg.frequency * 1.6 * PLANET_RADIUS, noise[3]) - 0.5) * cfg.ridgeAmplitude;
 
-  // Ranges. ridged() peaks at 1 along its crest line and falls away either side; the
-  // power keeps only the crest, so the result is a few tall spines rather than a world
-  // of uniform lumps. This is where the height that used to be floating islands went.
-  const crest = ridged(x, z, cfg.mountainFrequency, noise[5]);
+  const bf = cfg.basinFrequency * PLANET_RADIUS;
+  h += noise[4](d.x * bf, d.y * bf, d.z * bf) * cfg.basinAmplitude;
+
+  // Ranges. The power keeps only the crest line, so these are a few long spines rather
+  // than a world of uniform lumps.
+  const crest = ridged(d, cfg.mountainFrequency * PLANET_RADIUS, noise[5]);
   h += crest ** cfg.mountainSharpness * cfg.mountainAmplitude;
 
   for (const c of craters) {
-    const d = Math.hypot(x - c.x, z - c.z);
-    if (d >= c.radius) continue;
-    // cos ramp rather than a linear or quadratic one: it meets the surrounding ground
-    // with zero slope at both ends, so neither the lip nor the floor shows a crease.
-    const t = d / c.radius;
-    const bowl = (Math.cos(t * Math.PI) + 1) / 2;      // 1 at the centre, 0 at the edge
-    const rim = Math.sin(t * Math.PI) ** 6;            // a narrow swell just inside the lip
+    const a = d.angleTo(c.dir);
+    if (a >= c.arc) continue;
+    const t = a / c.arc;
+    const bowl = (Math.cos(t * Math.PI) + 1) / 2;   // 1 at the centre, 0 at the edge
+    const rim = Math.sin(t * Math.PI) ** 6;         // a narrow swell just inside the lip
     h += -c.depth * bowl + c.depth * cfg.craterRim * rim;
   }
 
-  // Flatten a landing area around the origin so the moth never spawns inside a ridge.
-  const d = Math.hypot(x, z);
-  if (d < cfg.spawnFlat) h *= (d / cfg.spawnFlat) ** 2;
+  // Flatten a landing area under the spawn point so the moth never starts inside a ridge.
+  const a = d.angleTo(SPAWN_DIR);
+  const flat = cfg.spawnFlat / PLANET_RADIUS;
+  if (a < flat) h *= (a / flat) ** 2;
 
-  return h;
+  return PLANET_RADIUS + h;
 }
 
-/**
- * Highest ground anywhere, measured once rather than reasoned about.
- *
- * The flight ceiling and the camera far plane both have to clear it. When the ceiling
- * was a hand-picked constant it silently capped the moth *below* the ground clearance
- * over a tall peak, because flight.js applies the ceiling after the floor.
- */
+/** Highest point anywhere. The flight ceiling and the camera far plane both clear it. */
 export const terrainMax = (() => {
-  const N = 220;
-  const step = WORLD_SIZE / N;
   let max = -Infinity;
-  for (let i = 0; i <= N; i++) {
-    for (let j = 0; j <= N; j++) {
-      const h = heightAt(-WORLD_SIZE / 2 + i * step, -WORLD_SIZE / 2 + j * step);
+  const d = new THREE.Vector3();
+  const N = 260;
+  for (let i = 0; i < N; i++) {
+    // Fibonacci sphere: even coverage without crowding the poles.
+    for (let j = 0; j < N; j++) {
+      const k = i * N + j;
+      const y = 1 - (2 * k + 1) / (N * N);
+      const r = Math.sqrt(Math.max(0, 1 - y * y));
+      const th = k * 2.399963229728653;
+      d.set(Math.cos(th) * r, y, Math.sin(th) * r);
+      const h = radiusAt(d);
       if (h > max) max = h;
     }
   }
@@ -151,12 +171,22 @@ function groundTexture(size = 1024) {
   return tex;
 }
 
+/**
+ * The ball. An icosphere rather than a UV sphere, because a UV sphere crowds its
+ * triangles at the poles and this surface has no preferred axis.
+ *
+ * IcosahedronGeometry is non-indexed, one set of vertices per face, so displacing it
+ * directly would split every shared edge and the whole planet would render faceted.
+ * mergeVertices welds them first.
+ */
 export function createGround() {
-  const geo = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, cfg.segments, cfg.segments);
-  geo.rotateX(-Math.PI / 2);
+  const geo = mergeVertices(new THREE.IcosahedronGeometry(1, cfg.detail));
   const pos = geo.attributes.position;
+  const d = new THREE.Vector3();
   for (let i = 0; i < pos.count; i++) {
-    pos.setY(i, heightAt(pos.getX(i), pos.getZ(i)));
+    d.fromBufferAttribute(pos, i).normalize();
+    const r = radiusAt(d);
+    pos.setXYZ(i, d.x * r, d.y * r, d.z * r);
   }
   geo.computeVertexNormals();
 

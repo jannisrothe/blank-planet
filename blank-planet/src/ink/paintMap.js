@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { WORLD_SIZE, paint as cfg } from '../config.js';
+import { PLANET_RADIUS, paint as cfg } from '../config.js';
 
 /**
  * Wet oil paint, thrown at a planet.
@@ -19,22 +19,21 @@ import { WORLD_SIZE, paint as cfg } from '../config.js';
  *
  * It used to be a full-screen -1..1 plane, so every stamp ran the fragment shader over
  * all 4.2 million texels and threw away the 99.9% that missed. Harmless while the shape
- * was a bare disc that discarded at 2.6 radii. Turning the spatter on widened the
- * surviving area enough to cost 45ms frames, which is what made this worth doing: the
- * saving applies to every splat, spatter or not.
+ * was a bare disc; the spatter reaches 5.9 radii and made it cost 45ms frames.
  *
- * `position.xy` is the -1..1 plane, mapped onto a box of half-size uRadius * uBound
- * around the impact. vUv comes out as map uv directly, so the fragment shader is
- * unchanged by any of this.
+ * The box is computed on the CPU now, because on an equirectangular map its width in
+ * longitude depends on how near the pole the splat landed. `uOffsetU` shifts the whole
+ * quad by one texture width so a splat straddling the +/-180 meridian can be drawn a
+ * second time instead of being cut in half at the seam.
  */
 const VERT = /* glsl */`
-uniform vec2 uCenter;
-uniform float uRadius;
-uniform float uBound;
+uniform vec2 uQuadCentre;
+uniform vec2 uQuadHalf;
+uniform float uOffsetU;
 varying vec2 vUv;
 void main() {
-  vUv = uCenter + position.xy * (uRadius * uBound);
-  gl_Position = vec4(vUv * 2.0 - 1.0, 0.0, 1.0);
+  vUv = uQuadCentre + position.xy * uQuadHalf;
+  gl_Position = vec4(vec2(vUv.x + uOffsetU, vUv.y) * 2.0 - 1.0, 0.0, 1.0);
 }
 `;
 
@@ -42,9 +41,11 @@ const FRAG = /* glsl */`
 precision highp float;
 
 uniform vec3  uColor;
-uniform vec2  uCenter;     // splat centre in map uv
-uniform float uRadius;     // splat radius in map uv
-uniform vec2  uDir;        // horizontal impact direction, for throwing spatter downrange
+uniform vec3  uCentreDir;  // splat centre, as a direction from the planet centre
+uniform vec3  uTanX;       // tangent frame at uCentreDir, so the spatter has a bearing
+uniform vec3  uTanY;
+uniform float uAngRadius;  // splat radius as an angle at the planet centre
+uniform vec2  uDir;        // impact bearing in that tangent frame, throws spatter downrange
 uniform float uSeed;
 uniform float uSatellites;
 uniform float uSpikes;
@@ -71,9 +72,23 @@ float fbm(vec2 p) {
 }
 
 void main() {
-  // Work in units of the splat radius, so the shape is scale independent.
-  vec2 p = (vUv - uCenter) / uRadius;
-  float r = length(p);
+  // Reconstruct this texel's own direction on the planet, then measure the ANGLE to the
+  // splat's centre. Measuring 2D distance in equirect space instead would stretch every
+  // splat into a smear as it approached a pole; in angle there are no poles.
+  float lon = (vUv.x - 0.5) * 6.2831853;
+  float lat = (vUv.y - 0.5) * 3.1415927;
+  float cl = cos(lat);
+  vec3 dir = vec3(cl * cos(lon), sin(lat), cl * sin(lon));
+
+  float angDist = acos(clamp(dot(dir, uCentreDir), -1.0, 1.0));
+  // Bearing from the centre, in the splat's own tangent frame. p keeps the same meaning
+  // it had on the plane -- offset in units of the splat radius -- so the shape code below
+  // is untouched.
+  vec3 t = dir - uCentreDir * dot(dir, uCentreDir);
+  float tl = length(t);
+  vec2 bearing = tl > 1e-6 ? vec2(dot(t, uTanX), dot(t, uTanY)) / tl : vec2(1.0, 0.0);
+  float r = angDist / uAngRadius;
+  vec2 p = bearing * r;
   // Same bound the quad was sized to. It has to clear the spatter, not just the core,
   // or the far droplets are cut off and the splat looks round again.
   if (r > uBound) discard;
@@ -130,6 +145,11 @@ void main() {
 /** Patch of the map averaged for the audio signal, in texels. */
 const SAMPLE_SPAN = 48;
 
+const _dir = new THREE.Vector3();
+const _tmp = new THREE.Vector3();
+const _axisY = new THREE.Vector3(0, 1, 0);
+const _axisX = new THREE.Vector3(1, 0, 0);
+
 export class PaintMap {
   constructor(renderer) {
     this.renderer = renderer;
@@ -138,7 +158,7 @@ export class PaintMap {
     this.target = new THREE.WebGLRenderTarget(size, size, {
       minFilter: THREE.LinearFilter,
       magFilter: THREE.LinearFilter,
-      wrapS: THREE.ClampToEdgeWrapping,
+      wrapS: THREE.RepeatWrapping,
       wrapT: THREE.ClampToEdgeWrapping,
       format: THREE.RGBAFormat,
       type: THREE.UnsignedByteType, // no tiny per-frame increments to quantise away now
@@ -149,8 +169,13 @@ export class PaintMap {
 
     this.uniforms = {
       uColor: { value: new THREE.Color(1, 0, 1) },
-      uCenter: { value: new THREE.Vector2(0.5, 0.5) },
-      uRadius: { value: cfg.radius / WORLD_SIZE },
+      uCentreDir: { value: new THREE.Vector3(0, 1, 0) },
+      uTanX: { value: new THREE.Vector3(1, 0, 0) },
+      uTanY: { value: new THREE.Vector3(0, 0, 1) },
+      uAngRadius: { value: cfg.radius / PLANET_RADIUS },
+      uQuadCentre: { value: new THREE.Vector2(0.5, 0.5) },
+      uQuadHalf: { value: new THREE.Vector2(0.1, 0.1) },
+      uOffsetU: { value: 0 },
       uDir: { value: new THREE.Vector2(1, 0) },
       uSeed: { value: 0 },
       uSatellites: { value: cfg.satellites },
@@ -202,38 +227,75 @@ export class PaintMap {
   get texture() { return this.target.texture; }
   get coverage() { return this._coverage; }
 
-  static toUv(x, z, out) {
-    return out.set(x / WORLD_SIZE + 0.5, z / WORLD_SIZE + 0.5);
+  /** Equirectangular map coordinates for a direction. */
+  static toUv(dir, out) {
+    const d = _dir.copy(dir).normalize();
+    return out.set(
+      Math.atan2(d.z, d.x) / (Math.PI * 2) + 0.5,
+      Math.asin(Math.max(-1, Math.min(1, d.y))) / Math.PI + 0.5,
+    );
   }
 
   /**
    * Stamp a splat. Called once when a droplet lands, never per frame.
-   * @param {number} x @param {number} z world position of the impact
+   * @param {THREE.Vector3} at world position of the impact; only its direction matters
    * @param {THREE.Color} color
-   * @param {THREE.Vector2} dir horizontal travel direction, throws the spatter downrange
+   * @param {THREE.Vector3} vel impact velocity, which throws the spatter downrange
    * @param {number} scale 1 is the configured radius
    */
-  splat(x, z, color, dir, scale = 1) {
-    PaintMap.toUv(x, z, this.uniforms.uCenter.value);
-    this.uniforms.uColor.value.copy(color);
-    this.uniforms.uRadius.value = (cfg.radius * scale) / WORLD_SIZE;
-    this.uniforms.uDir.value.copy(dir).normalize();
-    this.uniforms.uSeed.value = Math.random() * 100;
-    this.uniforms.uSatellites.value = cfg.satellites;
-    this.uniforms.uSpikes.value = cfg.spikes;
-    this.uniforms.uEdge.value = cfg.edgeSoftness;
-    this.uniforms.uTooth.value = cfg.tooth;
-    this.uniforms.uWobble.value = cfg.wobble;
-    // Furthest a satellite or spike can land, from the constants in the loops above,
-    // plus a little slack for the droplet's own radius and the soft edge.
-    this.uniforms.uBound.value = 2.6 + cfg.satellites * 6.4 + cfg.spikes * 3.0;
-    this._sampleUv.copy(this.uniforms.uCenter.value);
+  splat(at, color, vel, scale = 1) {
+    const u = this.uniforms;
+    const centre = _dir.copy(at).normalize();
+    u.uCentreDir.value.copy(centre);
+
+    // A tangent frame at the impact. Built off whichever world axis is least parallel to
+    // the surface normal, so it never degenerates at the poles.
+    const seed = Math.abs(centre.y) < 0.9 ? _axisY : _axisX;
+    const tanX = u.uTanX.value.copy(seed).cross(centre).normalize();
+    const tanY = u.uTanY.value.copy(centre).cross(tanX).normalize();
+
+    // The impact bearing, projected into that frame.
+    const vx = _tmp.copy(vel).dot(tanX);
+    const vy = _tmp.copy(vel).dot(tanY);
+    const vlen = Math.hypot(vx, vy);
+    u.uDir.value.set(vlen > 1e-5 ? vx / vlen : 1, vlen > 1e-5 ? vy / vlen : 0);
+
+    u.uColor.value.copy(color);
+    u.uAngRadius.value = (cfg.radius * scale) / PLANET_RADIUS;
+    u.uSeed.value = Math.random() * 100;
+    u.uSatellites.value = cfg.satellites;
+    u.uSpikes.value = cfg.spikes;
+    u.uEdge.value = cfg.edgeSoftness;
+    u.uTooth.value = cfg.tooth;
+    u.uWobble.value = cfg.wobble;
+    // Furthest a satellite or spike can land, from the constants in the loops above.
+    u.uBound.value = 2.6 + cfg.satellites * 6.4 + cfg.spikes * 3.0;
+
+    PaintMap.toUv(centre, this._sampleUv);
+    u.uQuadCentre.value.copy(this._sampleUv);
+
+    // Bounding box in equirect space. Latitude is simple; longitude has to widen by
+    // 1/cos(lat) and go all the way round once the box reaches over a pole.
+    const maxAng = u.uAngRadius.value * u.uBound.value;
+    const lat = (this._sampleUv.y - 0.5) * Math.PI;
+    const halfV = maxAng / Math.PI;
+    const reachesPole = Math.abs(lat) + maxAng >= Math.PI / 2 - 1e-4;
+    const halfU = reachesPole
+      ? 0.5
+      : Math.min(0.5, Math.asin(Math.min(1, Math.sin(maxAng) / Math.cos(lat))) / (Math.PI * 2));
+    u.uQuadHalf.value.set(halfU, halfV);
 
     const prevTarget = this.renderer.getRenderTarget();
     const prevAutoClear = this.renderer.autoClear;
     this.renderer.autoClear = false;
     this.renderer.setRenderTarget(this.target);
-    this.renderer.render(this.scene, this.camera);
+    // Three passes, offset by one texture width each way. Only the middle one lands
+    // unless the box straddles the +/-180 meridian, and the other two are clipped
+    // whole -- four vertices each, which is cheaper than deciding whether to skip them.
+    for (const offset of [-1, 0, 1]) {
+      u.uOffsetU.value = offset;
+      this.renderer.render(this.scene, this.camera);
+    }
     this.renderer.setRenderTarget(prevTarget);
     this.renderer.autoClear = prevAutoClear;
     this.splats++;
@@ -243,13 +305,13 @@ export class PaintMap {
    * How much paint is on the ground around the player, 0..1, for the audio mix.
    * Async, so it never stalls the pipeline.
    */
-  async sampleCoverage(x, z) {
+  async sampleCoverage(at) {
     if (this._reading) return this._coverage;
     this._reading = true;
     try {
       const S = cfg.resolution;
       const R = SAMPLE_SPAN;
-      PaintMap.toUv(x, z, this._sampleUv);
+      PaintMap.toUv(at, this._sampleUv);
       const clamp = (v) => Math.max(0, Math.min(S - R, Math.round(v)));
       const px = clamp(this._sampleUv.x * S - R / 2);
       const py = clamp(this._sampleUv.y * S - R / 2);
@@ -266,9 +328,10 @@ export class PaintMap {
   }
 
   /** Colour and coverage at a world point, 0..255. Used by the gates. */
-  async sampleAt(x, z) {
+  /** @param {THREE.Vector3} at a direction from the planet centre */
+  async sampleAt(at) {
     const S = cfg.resolution;
-    const uv = PaintMap.toUv(x, z, new THREE.Vector2());
+    const uv = PaintMap.toUv(at, new THREE.Vector2());
     const px = Math.max(0, Math.min(S - 2, Math.round(uv.x * S)));
     const py = Math.max(0, Math.min(S - 2, Math.round(uv.y * S)));
     const buf = new Uint8Array(16);

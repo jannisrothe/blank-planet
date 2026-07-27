@@ -47,6 +47,7 @@ export function createTrees(count, rand) {
 
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
+  const spin = new THREE.Quaternion();
   const pos = new THREE.Vector3();
   const scl = new THREE.Vector3();
   const colour = new THREE.Color();
@@ -58,8 +59,8 @@ export function createTrees(count, rand) {
   );
 
   trees.forEach((t, i) => {
-    q.setFromAxisAngle(Y_AXIS, t.spin);
-    pos.set(t.x, t.y, t.z);
+    q.copy(t.quat).multiply(spin.setFromAxisAngle(Y_AXIS, t.spin));
+    pos.copy(t.dir).multiplyScalar(t.radius);
     scl.setScalar(t.scale);
     trunkMesh.setMatrixAt(i, m.compose(pos, q, scl));
     trunkMesh.setColorAt(i, sample('trunk', rand, colour));
@@ -73,8 +74,8 @@ export function createTrees(count, rand) {
       mine.length,
     );
     mine.forEach((t, i) => {
-      q.setFromAxisAngle(Y_AXIS, t.spin);
-      pos.set(t.x, t.y + def.y * t.scale, t.z);
+      q.copy(t.quat).multiply(spin.setFromAxisAngle(Y_AXIS, t.spin));
+      pos.copy(t.dir).multiplyScalar(t.radius + def.y * t.scale);
       scl.set(t.scale * t.canopyScale[0], t.scale * t.canopyScale[1], t.scale * t.canopyScale[2]);
       mesh.setMatrixAt(i, m.compose(pos, q, scl));
       mesh.setColorAt(i, sample('canopy', rand, colour));
@@ -89,6 +90,6 @@ export function createTrees(count, rand) {
     mesh.frustumCulled = false; // instances span the world; the bounding sphere is useless
   }
 
-  const colliders = trees.map((t) => ({ x: t.x, z: t.z, r: col.treeRadius * t.scale }));
+  const colliders = trees.map((t) => ({ dir: t.dir, r: col.treeRadius * t.scale }));
   return { meshes, colliders };
 }

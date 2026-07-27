@@ -1,8 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { applyInk } from '../ink/inkMaterial.js';
-import { scatter } from '../scatter.js';
-import { heightAt } from '../terrain.js';
+import { scatter, offsetSpot } from '../scatter.js';
 import { life as cfg } from '../config.js';
 
 /**
@@ -124,15 +123,29 @@ const _e = new THREE.Euler();
 const _p = new THREE.Vector3();
 const _s = new THREE.Vector3();
 
+const _local = new THREE.Quaternion();
+
+/**
+ * `alt` is a radial offset from the surface. The spot's quaternion stands the form up on
+ * the ball; the item's own Euler is multiplied onto it, so the sway and the random yaw
+ * these already had are re-based onto the local normal rather than replaced.
+ */
 function writeMatrix(mesh, i, it) {
   _e.set(it.rx ?? 0, it.ry ?? 0, it.rz ?? 0);
-  _p.set(it.x, it.y, it.z);
+  _q.copy(it.spot.quat).multiply(_local.setFromEuler(_e));
+  _p.copy(it.spot.dir).multiplyScalar(it.spot.radius + (it.alt ?? 0));
   _s.set(it.sx, it.sy, it.sz);
-  mesh.setMatrixAt(i, _m.compose(_p, _q.setFromEuler(_e), _s));
+  mesh.setMatrixAt(i, _m.compose(_p, _q, _s));
 }
 
-function instanced(geo, material, items) {
+/**
+ * @param {boolean} animated marks the instance buffer as dynamic. Rewriting a buffer the
+ *   driver was told is static makes it orphan and reallocate the storage, which shows up
+ *   as an occasional very long frame rather than a steady cost.
+ */
+function instanced(geo, material, items, animated = false) {
   const mesh = new THREE.InstancedMesh(geo, material, items.length);
+  if (animated) mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   items.forEach((it, i) => writeMatrix(mesh, i, it));
   mesh.instanceMatrix.needsUpdate = true;
   mesh.frustumCulled = false;
@@ -150,21 +163,20 @@ export function createLifeforms(density, rand) {
   for (const c of clumps) {
     const n = 3 + Math.floor(rand() * 6);
     for (let i = 0; i < n && anemones.length < density.anemones; i++) {
-      const a = rand() * Math.PI * 2;
-      const r = rand() * 16;
-      const x = c.x + Math.cos(a) * r;
-      const z = c.z + Math.sin(a) * r;
+      // Scatter around the clump centre by rotating it, not by adding to x and z: on a
+      // ball an offset in world units leaves the surface.
+      const spot = offsetSpot(c, rand() * Math.PI * 2, rand() * 16);
       const height = 8 + rand() * 17;
       const k = height / ANEMONE_HEIGHT;
       anemones.push({
-        x, y: heightAt(x, z) - 0.4, z,
+        spot, alt: -0.4,
         sx: k * (0.8 + rand() * 0.5), sy: k, sz: k * (0.8 + rand() * 0.5),
         ry: rand() * Math.PI * 2,
         phase: rand() * Math.PI * 2,
       });
     }
   }
-  const anemoneMesh = instanced(anemoneGeometry(), inkMaterial(), anemones);
+  const anemoneMesh = instanced(anemoneGeometry(), inkMaterial(), anemones, true);
   meshes.push(anemoneMesh);
   animated.push((t) => {
     anemones.forEach((it, i) => {
@@ -181,14 +193,14 @@ export function createLifeforms(density, rand) {
     const size = 15 + rand() * 30;
     const k = size / 2;
     return {
-      x: s.x, y: s.y - size * 0.20, z: s.z,
+      spot: s, alt: -size * 0.20,
       sx: k, sy: k * (0.8 + rand() * 0.4), sz: k,
       ry: rand() * Math.PI * 2,
       base: k,
       phase: rand() * Math.PI * 2,
     };
   });
-  const sacMesh = instanced(sacGeometry(), inkMaterial(), sacs);
+  const sacMesh = instanced(sacGeometry(), inkMaterial(), sacs, true);
   meshes.push(sacMesh);
   animated.push((t) => {
     sacs.forEach((it, i) => {
@@ -204,7 +216,7 @@ export function createLifeforms(density, rand) {
   const shells = scatter(density.shells, rand, 34, 80).map((s) => {
     const k = (20 + rand() * 30) / 1.4;
     return {
-      x: s.x, y: s.y + k * 0.05, z: s.z,
+      spot: s, alt: k * 0.05,
       sx: k, sy: k, sz: k,
       rx: (rand() - 0.5) * 0.7,
       ry: rand() * Math.PI * 2,
@@ -217,7 +229,7 @@ export function createLifeforms(density, rand) {
   const ribs = scatter(density.ribs, rand, 40, 90).map((s) => {
     const k = (30 + rand() * 40) / 2.4;
     return {
-      x: s.x, y: s.y - k * 0.18, z: s.z,
+      spot: s, alt: -k * 0.18,
       sx: k, sy: k * (0.8 + rand() * 0.5), sz: k,
       ry: rand() * Math.PI * 2,
       rz: (rand() - 0.5) * 0.2,

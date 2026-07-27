@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { droplet as cfg } from '../config.js';
-import { heightAt } from '../terrain.js';
+import { radiusAt } from '../terrain.js';
+
+const _down = new THREE.Vector3();
+const _look = new THREE.Vector3();
 
 /**
  * The blobs of paint you release, falling under gravity until they hit the planet.
@@ -56,25 +59,28 @@ export class Droplets {
   update(dt) {
     for (let i = this.live.length - 1; i >= 0; i--) {
       const d = this.live[i];
-      d.vel.y -= cfg.gravity * dt;
+      // Gravity points at the planet centre, not at -Y. On a ball those are the same
+      // thing only directly under the spawn point.
+      _down.copy(d.mesh.position).normalize();
+      d.vel.addScaledVector(_down, -cfg.gravity * dt);
       d.mesh.position.addScaledVector(d.vel, dt);
 
       // Stretch along travel, so a fast droplet reads as a streak rather than a ball.
       const speed = d.vel.length();
       const stretch = 1 + Math.min(2.2, speed * cfg.stretch);
       d.mesh.scale.set(cfg.size, cfg.size * stretch, cfg.size);
-      d.mesh.lookAt(d.mesh.position.clone().add(d.vel));
+      d.mesh.lookAt(_look.copy(d.mesh.position).add(d.vel));
       d.mesh.rotateX(Math.PI / 2);
 
       const p = d.mesh.position;
-      const ground = heightAt(p.x, p.z);
-      if (p.y <= ground) {
-        this.onImpact(p.x, ground, p.z, d.color, d.vel);
+      const surface = radiusAt(p);
+      if (p.length() <= surface) {
+        this.onImpact(p, d.color, d.vel);
         d.mesh.visible = false;
         this.pool.push(d.mesh);
         this.live.splice(i, 1);
-      } else if (p.y < -400) {
-        // fell off the world somehow; recycle rather than leak
+      } else if (p.length() > surface + 4000) {
+        // escaped the planet somehow; recycle rather than leak
         d.mesh.visible = false;
         this.pool.push(d.mesh);
         this.live.splice(i, 1);

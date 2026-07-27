@@ -35,10 +35,13 @@ const where = await page.evaluate(async (height) => {
   g.input.turn = 0;
   g.moth.root.visible = false; // it is the one thing that is never washed, and it blocks the view
 
-  const ground = g.heightAt(start.x, start.z);
-  g.camera.position.set(start.x, ground + height, start.z + height * 1.5);
-  g.camera.lookAt(start.x, ground, start.z);
-  return { x: Math.round(start.x), z: Math.round(start.z), ground: Math.round(ground) };
+  const surface = g.radiusAt(start);
+  const up = start.clone().normalize();
+  g.camera.position.copy(up).multiplyScalar(surface + height)
+    .addScaledVector(g.flight.state.forward, -height * 1.5);
+  g.camera.up.copy(up);
+  g.camera.lookAt(up.clone().multiplyScalar(surface));
+  return { surface: Math.round(surface), height };
 }, HEIGHT);
 
 await page.evaluate(() => {

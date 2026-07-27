@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { WORLD_SIZE, paint as cfg } from '../config.js';
+import { paint as cfg } from '../config.js';
 
 /**
  * Patches any three material so it is invisible on blank paper and takes on whatever
@@ -47,7 +47,15 @@ const SHADE = /* glsl */`
 
 const FRAGMENT_INJECT = /* glsl */`
 {
-  vec2 inkUv = vInkWorld.xz / uInkWorldSize + 0.5;
+  // The map is equirectangular around the planet, so the lookup is the fragment's own
+  // direction from the centre. Computing it per fragment rather than interpolating a uv
+  // is also what stops the +/-180 meridian showing as a seam: no two fragments ever
+  // interpolate across the wrap.
+  vec3 inkDir = normalize(vInkWorld);
+  vec2 inkUv = vec2(
+    atan(inkDir.z, inkDir.x) * 0.15915494 + 0.5,
+    asin(clamp(inkDir.y, -1.0, 1.0)) * 0.31830989 + 0.5
+  );
   vec4 paintTex = texture2D(uPaintMap, inkUv);
 
   vec3 pigment = paintTex.rgb;
@@ -67,7 +75,6 @@ export function applyInk(material) {
     previous?.(shader, renderer);
 
     shader.uniforms.uPaintMap = { value: null };
-    shader.uniforms.uInkWorldSize = { value: WORLD_SIZE };
     shader.uniforms.uPaper = { value: new THREE.Color(0xffffff) };
     shader.uniforms.uCoverGamma = { value: cfg.coverGamma };
     shader.uniforms.uShade = { value: new THREE.Vector2(cfg.shadeFloor, cfg.shadeRange) };
@@ -91,7 +98,7 @@ export function applyInk(material) {
         'void main() {',
         'varying vec3 vInkWorld;\n'
         + 'uniform sampler2D uPaintMap;\n'
-        + 'uniform float uInkWorldSize;\nuniform vec3 uPaper;\n'
+        + 'uniform vec3 uPaper;\n'
         + 'uniform float uCoverGamma;\nuniform vec2 uShade;\nuniform float uChroma;\n'
         + 'void main() {',
       )

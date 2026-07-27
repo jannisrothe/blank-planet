@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { createWorld } from './world.js';
-import { createGround, heightAt } from './terrain.js';
+import { createGround, radiusAt, SPAWN_DIR } from './terrain.js';
 import { createFlight } from './flight.js';
 import { Colliders } from './collision.js';
 import { PaintMap } from './ink/paintMap.js';
@@ -91,26 +91,21 @@ function loadNextColor() {
 }
 loadNextColor();
 
-const impactDir = new THREE.Vector2();
-
-const droplets = new Droplets(scene, (x, y, z, color, vel) => {
-  impactDir.set(vel.x, vel.z);
-  if (impactDir.lengthSq() < 1e-4) impactDir.set(1, 0);
+const droplets = new Droplets(scene, (at, color, vel) => {
   // Faster impacts throw wider splats.
   const scale = 0.75 + Math.min(1.4, vel.length() / 42);
-  paint.splat(x, z, color, impactDir, scale);
+  paint.splat(at, color, vel, scale);
 });
 
 const releaseVel = new THREE.Vector3();
 const releasePos = new THREE.Vector3();
 function dropPigment() {
   const st = flight.state;
-  releasePos.copy(st.pos).y -= 1.2;
-  releaseVel.set(
-    -Math.sin(st.yaw) * (st.speed + dropCfg.throwSpeed),
-    -2,
-    -Math.cos(st.yaw) * (st.speed + dropCfg.throwSpeed),
-  );
+  // Released just under the moth, carrying its own velocity, with a nudge inward so it
+  // starts falling rather than skimming.
+  releasePos.copy(st.pos).addScaledVector(st.up, -1.2);
+  releaseVel.copy(st.forward).multiplyScalar(st.speed + dropCfg.throwSpeed)
+    .addScaledVector(st.up, -2);
   droplets.spawn(releasePos, releaseVel, nextColor);
   loadNextColor();
 }
@@ -167,7 +162,7 @@ function frame() {
 
   // Async readback, so this never stalls the pipeline. A few frames of latency is
   // inaudible, and sampling every frame would be pointless at a 0.6s smoothing time.
-  if (++frameCount % 12 === 0) paint.sampleCoverage(flight.state.pos.x, flight.state.pos.z);
+  if (++frameCount % 12 === 0) paint.sampleCoverage(flight.state.pos);
   ambience.update(paint.coverage);
 
   post.render(dt);
@@ -177,8 +172,11 @@ function frame() {
 // Hooks for scripts/measure.mjs. `freeze` lets the harness wipe the ink and confirm
 // the world really does disappear, without the loop immediately re-inking underfoot.
 const api = {
-  renderer, scene, camera, paint, droplets, colliders, post, ambience, moth, flight,
-  input: flight.input, heightAt, dropPigment, freeze: false,
+  renderer, scene, camera, paint, droplets, colliders, post, ambience, moth, flight, life,
+  input: flight.input, radiusAt, dropPigment, freeze: false,
+  /** Altitude above the surface, which is what the gates actually mean by height. */
+  altitudeAt: (v) => v.length() - radiusAt(v),
+  SPAWN_DIR,
   clearPigment: () => paint.clear(),
 };
 globalThis.__blankPlanet = api;
