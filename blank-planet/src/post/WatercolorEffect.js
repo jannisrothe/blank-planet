@@ -1,5 +1,5 @@
 import { Effect, EffectAttribute } from 'postprocessing';
-import { Uniform } from 'three';
+import { Color, Uniform } from 'three';
 
 /**
  * The painterly layer: Kuwahara, then paper, in one pass.
@@ -25,6 +25,7 @@ uniform float uContour;
 uniform float uCrease;
 uniform float uContourWidth;
 uniform float uVignette;
+uniform vec3 uVoid;
 uniform float uFibre;
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123); }
@@ -121,7 +122,7 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth,
   best *= 1.0 - (grain - 0.5) * uGrain;
 
   float d = distance(uv, vec2(0.5));
-  best = mix(best, vec3(1.0), smoothstep(0.55, 0.95, d) * uVignette);
+  best = mix(best, uVoid, smoothstep(0.55, 0.95, d) * uVignette);
 
   outputColor = vec4(best, inputColor.a);
 }
@@ -130,7 +131,7 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth,
 export class WatercolorEffect extends Effect {
   constructor({ radius = 3, grain = 0.09, grainScale = 900, outline = 0.28,
                 contour = 0.55, crease = 0.35, contourWidth = 1.0,
-                vignette = 0.5, fibre = 2.2 } = {}) {
+                vignette = 0.5, fibre = 2.2, voidColor = null } = {}) {
     super('WatercolorEffect', fragment, {
       // The contour reads the depth buffer, which postprocessing only attaches, and only
       // defines readDepth/getViewZ for, when the effect declares it needs depth.
@@ -144,6 +145,7 @@ export class WatercolorEffect extends Effect {
         ['uCrease', new Uniform(crease)],
         ['uContourWidth', new Uniform(contourWidth)],
         ['uVignette', new Uniform(vignette)],
+        ['uVoid', new Uniform(voidColor ?? new Color(0, 0, 0))],
         ['uFibre', new Uniform(fibre)],
       ]),
     });

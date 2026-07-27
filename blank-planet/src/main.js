@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { createWorld } from './world.js';
-import { createGround, radiusAt, SPAWN_DIR } from './terrain.js';
+import { createGround, radiusAt, terrainMax, SPAWN_DIR } from './terrain.js';
 import { createFlight } from './flight.js';
 import { Colliders } from './collision.js';
 import { PaintMap } from './ink/paintMap.js';
@@ -15,6 +15,7 @@ import { createMoth } from './props/moth.js';
 import { Droplets } from './props/droplets.js';
 import { createArches, createGrowths, createSpires } from './props/features.js';
 import { createLifeforms } from './props/lifeforms.js';
+import { createStarfield } from './props/starfield.js';
 import { createComposer } from './post/composer.js';
 import { Ambience } from './audio.js';
 import { density, droplet as dropCfg } from './config.js';
@@ -28,6 +29,8 @@ debugModule?.applyDensityOverrides(density);
 const { renderer, scene, camera } = createWorld();
 const paint = new PaintMap(renderer);
 const post = createComposer(renderer, scene, camera);
+
+scene.add(createStarfield());
 
 const ground = createGround();
 applyInk(ground.material);
@@ -176,7 +179,7 @@ const api = {
   input: flight.input, radiusAt, dropPigment, freeze: false,
   /** Altitude above the surface, which is what the gates actually mean by height. */
   altitudeAt: (v) => v.length() - radiusAt(v),
-  SPAWN_DIR,
+  SPAWN_DIR, terrainMax,
   clearPigment: () => paint.clear(),
 };
 globalThis.__blankPlanet = api;

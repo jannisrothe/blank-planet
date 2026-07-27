@@ -247,6 +247,33 @@ load that allocated four objects per scatter point across ninety thousand points
 now returns a direction, a quaternion and a radius, and derives the world position rather
 than storing it.
 
+### Space
+
+A sky sphere seen from the inside, not a cube map: the whole background is generated, so
+one 2:1 canvas beats six faces that have to agree at their seams. It sits outside the
+flight ceiling, renders first and writes no depth, so nothing can clip it. Stars are drawn
+into the canvas rather than instanced, which is one texture and one draw call instead of
+nine thousand quads.
+
+Two things had to move with it:
+
+- **The vignette fell off to white**, which was the edge of a sheet of paper. Against space
+  it ringed the frame in white. It falls off to the sky colour now.
+- **The `contours` gate counted non-white pixels**, which a black sky passes for free. It
+  counts mid-tones instead: darker than the white planet, lighter than space. `no pigment`
+  needed no change, because it measures chroma and neither black nor white has any.
+
+Drawing the dust as a few large radial gradients put a hard-edged wedge across the sky —
+a gradient spanning a good fraction of an equirectangular texture maps onto a sphere as a
+cone. Seventy small patches instead.
+
+The lap gate flaked once here, reporting its closest approach at the start of the window.
+The ground-clearance rule pitches up whenever the moth clips the floor and nothing pulls
+it back down, so a long flight spirals outward into a wider, slower orbit that never
+closes. The gate now starts above the highest ground and holds the pitch itself flat, not
+just the target: whether the world wraps is a separate question from terrain avoidance.
+Two consecutive runs, 1 unit both times.
+
 ## Bugs that produced confident, wrong output
 
 Each of these looked fine until something was measured or rendered side by side.

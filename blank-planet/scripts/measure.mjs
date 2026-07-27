@@ -121,7 +121,7 @@ const PROBE = () => {
 async function whiteness(page, skip) {
   // Playwright waits for a stable compositor frame, which never arrives with
   // vsync disabled. Perf runs skip the pixel check; visual gates run capped.
-  if (skip) return { white: NaN, coloured: NaN };
+  if (skip) return { white: NaN, coloured: NaN, midtone: NaN };
   const b64 = (await page.screenshot({ type: 'png' })).toString('base64');
   return page.evaluate(async (data) => {
     const img = new Image();
@@ -135,15 +135,19 @@ async function whiteness(page, skip) {
     const d = ctx.getImageData(0, 0, w, h).data;
     let white = 0;
     let coloured = 0;
+    let midtone = 0;
     for (let i = 0; i < d.length; i += 4) {
       const r = d[i], g = d[i + 1], b = d[i + 2];
+      const hi = Math.max(r, g, b), lo = Math.min(r, g, b);
       if (r > 248 && g > 248 && b > 248) white++;
-      // Chroma, not brightness. The contour pass draws the world in grey line, so an
-      // unpainted planet is no longer a blank sheet -- but it must still carry no
-      // pigment, and grey has none.
-      else if (Math.max(r, g, b) - Math.min(r, g, b) > 22) coloured++;
+      // Chroma, not brightness. The world is drawn in grey line on a white planet against
+      // a near-black sky, so none of the three carries pigment and all three are allowed.
+      else if (hi - lo > 22) coloured++;
+      // The line work itself: darker than the planet, lighter than space. Counting
+      // "not white" would now pass on the sky alone.
+      else if (hi > 55 && hi < 246) midtone++;
     }
-    return { white: white / (w * h), coloured: coloured / (w * h) };
+    return { white: white / (w * h), coloured: coloured / (w * h), midtone: midtone / (w * h) };
   }, b64);
 }
 
@@ -465,16 +469,20 @@ async function main() {
       // the walk rather than the geometry.
       st.turn = 0;
       st.speed = 20;
-      // Nose level. The ground-clearance rule pitches up whenever it clips the floor and
-      // nothing pulls it back, so a long flight climbs; that is a separate question.
+      // Level, and high enough that the ground-clearance rule never fires. That rule
+      // pitches up whenever the moth clips the floor and nothing pulls it back down, so
+      // a long flight spirals outward into a wider and slower orbit and never closes.
+      // Terrain avoidance is a separate question from whether the world wraps.
       st.pitch = 0;
       st.targetPitch = 0;
+      st.pos.setLength(g.terrainMax + 40);
       const start = st.pos.clone();
       let closest = Infinity;
       let at = 0;
       const t0 = performance.now();
       while (performance.now() - t0 < 100000) {
         await new Promise((r) => requestAnimationFrame(r));
+        st.pitch = 0;
         st.targetPitch = 0;
         st.speed = 20;
         const dt = performance.now() - t0;
@@ -597,9 +605,9 @@ async function main() {
     // which the contour pass now breaks on purpose: the planet is drawn in grey line so
     // you can tell you are moving. What has to hold is that none of it carries pigment.
     const clean = blank.coloured <= 0.002;
-    const drawn = blank.white < 0.995;
+    const drawn = blank.midtone > 0.01;
     console.log(`  no pigment   ${(blank.coloured * 100).toFixed(2)}% of pixels carry colour with the ink wiped  ${clean ? 'PASS' : 'FAIL (pigment survived the wipe)'}`);
-    console.log(`  contours     ${((1 - blank.white) * 100).toFixed(2)}% of pixels are line work  ${drawn ? 'PASS' : 'FAIL (unpainted world is invisible)'}`);
+    console.log(`  contours     ${(blank.midtone * 100).toFixed(2)}% of pixels are line work  ${drawn ? 'PASS' : 'FAIL (unpainted world is invisible)'}`);
   }
   console.log(`  console errs ${errors.length}${errors.length ? '\n    ' + errors.slice(0, 5).join('\n    ') : ''}\n`);
 

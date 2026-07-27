@@ -98,7 +98,9 @@ export const post = {
   // it a 375-unit mountain is a blank white mass with an outline drawn round it.
   crease: 0.35,
   contourWidth: 1.0, // in pixels
-  vignette: 0.38,   // falls off to white, like the edge of the canvas
+  // Falls off to the sky colour. It used to go to white, which was the edge of a sheet
+  // of paper; against space that would ring the frame in white.
+  vignette: 0.38,
   fibre: 0.5,       // keep sampling almost straight, so curves stay curves
 };
 
@@ -129,6 +131,18 @@ export const life = {
   swayAngle: 0.16,     // how far it leans
   breathSpeed: 0.22,   // sac inflate cycle
   breathAmount: 0.11,  // fraction of size
+};
+
+// Space. The sky shell sits well outside the flight ceiling, so nothing can clip it.
+export const space = {
+  seed: 74110,
+  background: '#05060b',   // not pure black; a little blue reads as depth rather than void
+  radius: 5200,
+  textureSize: 4096,       // 4096x2048 equirectangular
+  stars: 9000,
+  starSize: [0.7, 3.4],    // in texture pixels
+  dustBands: 70,   // many small ones: a few large ones map to hard wedges in equirect
+  planets: 5,
 };
 
 // Fragment cost dominates this renderer, and it scales with the square of this number.

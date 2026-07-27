@@ -1,12 +1,13 @@
 import { EffectComposer, EffectPass, RenderPass } from 'postprocessing';
 import { WatercolorEffect } from './WatercolorEffect.js';
-import { post as cfg } from '../config.js';
+import { Color } from 'three';
+import { post as cfg, space } from '../config.js';
 
 export function createComposer(renderer, scene, camera) {
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
 
-  const watercolor = new WatercolorEffect(cfg);
+  const watercolor = new WatercolorEffect({ ...cfg, voidColor: new Color(space.background) });
   const pass = new EffectPass(camera, watercolor);
   composer.addPass(pass);
 
