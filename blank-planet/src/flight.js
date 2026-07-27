@@ -1,6 +1,12 @@
 import * as THREE from 'three';
 import { WORLD_SIZE, flight as cfg } from './config.js';
-import { heightAt } from './terrain.js';
+import { heightAt, terrainMax } from './terrain.js';
+
+/**
+ * The ceiling has to clear the tallest peak plus the clearance under it, or the two
+ * clamps fight and the ceiling wins, holding the moth inside a mountain.
+ */
+export const ceiling = Math.max(cfg.ceiling, terrainMax + cfg.groundClearance + 80);
 
 /**
  * Constant-drift flight. You are always moving forward; the mouse only chooses where
@@ -86,13 +92,15 @@ export function createFlight(camera, domElement, { moth, colliders, onLock, onUn
     state.pos.x = Math.min(half, Math.max(-half, state.pos.x));
     state.pos.z = Math.min(half, Math.max(-half, state.pos.z));
     colliders?.resolve(state.pos);
+    // Ceiling first, floor second. The other order lets the ceiling override the ground
+    // clearance over a peak, which puts the moth inside the mountain.
+    state.pos.y = Math.min(state.pos.y, ceiling);
     const floor = heightAt(state.pos.x, state.pos.z) + cfg.groundClearance;
     if (state.pos.y < floor) {
       state.pos.y = floor;
       // Nose up rather than grinding along the ground.
       state.targetPitch = Math.max(state.targetPitch, 0.12);
     }
-    state.pos.y = Math.min(state.pos.y, cfg.ceiling);
 
     // Moth sits at the flight position, banking into the turn.
     const bank = (state.targetYaw - state.yaw) * 7;

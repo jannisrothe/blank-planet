@@ -40,6 +40,8 @@ export function createDebug({ post: postFx, paint, ambience }) {
     .onChange((x) => { u('uOutline').value = x; });
   fPaper.add({ v: post.contour }, 'v', 0, 1, 0.01).name('contour (depth)')
     .onChange((x) => { u('uContour').value = x; });
+  fPaper.add({ v: post.crease }, 'v', 0, 1, 0.01).name('crease (inside shapes)')
+    .onChange((x) => { u('uCrease').value = x; });
   fPaper.add({ v: post.contourWidth }, 'v', 0.5, 4, 0.1).name('contour width')
     .onChange((x) => { u('uContourWidth').value = x; });
   fPaper.add({ v: post.vignette }, 'v', 0, 1, 0.01).name('vignette')

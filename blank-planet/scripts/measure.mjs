@@ -186,6 +186,27 @@ async function main() {
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('pageerror', (e) => errors.push(String(e)));
 
+  // What can this browser do with nothing to draw? Every frame number below is capped by
+  // this, and when the display drops to 30Hz -- an external monitor, a power setting, a
+  // Chrome throttle -- the whole run silently reads 30.0 fps no matter what the code
+  // does. That is worse than no number, because it looks like a measurement: a session
+  // spent here concluded the renderer was fill-bound and that cutting 72,000 instances
+  // changed nothing, when in fact nothing could have changed anything.
+  await page.setContent('<body></body>');
+  const cadence = await page.evaluate(() => new Promise((res) => {
+    const d = []; let last = performance.now(); let i = 0;
+    const tick = () => {
+      const n = performance.now(); d.push(n - last); last = n;
+      if (++i < 60) requestAnimationFrame(tick);
+      else { d.sort((a, b) => a - b); res(d[30]); }
+    };
+    requestAnimationFrame(tick);
+  }));
+  const cadenceFps = 1000 / cadence;
+  const throttled = !uncapped && cadenceFps < 50;
+  console.log(`  cadence  blank page runs at ${cadenceFps.toFixed(1)} fps`
+    + (throttled ? '  ** THROTTLED: frame numbers below are meaningless **' : ''));
+
   await page.goto(url, { waitUntil: 'load' });
   await page.waitForTimeout(2500); // let textures build and the first frames settle
 
@@ -404,43 +425,6 @@ async function main() {
     });
   }
 
-  // Things in the air must be hittable, and must NOT be painted by the ground under them.
-  // The second half is the one that matters: the world paint map is indexed by XZ alone,
-  // so before this they took the colour of whatever was splattered anywhere below them.
-  let air = null;
-  if (!uncapped && (await page.evaluate(() => !!globalThis.__blankPlanet?.hittables))) {
-    air = await page.evaluate(async () => {
-      const g = globalThis.__blankPlanet;
-      while (g.droplets.live.length) await new Promise((r) => requestAnimationFrame(r));
-
-      // The walk above has been painting the ground for twelve seconds. If a ground
-      // splat can reach the sky, something up there is carrying paint by now.
-      const bledFromGround = g.hittables.paintedCount;
-
-      // Now aim one at the biggest target there is and check it stops on it.
-      const targets = g.hittables.groups.flatMap((group) => group.items);
-      const t = targets.reduce((a, b) => (b.hitRadius > a.hitRadius ? b : a));
-      const pos = g.flight.state.pos.clone().set(t.x, t.y + t.hitRadius + 30, t.z);
-      const vel = g.flight.state.pos.clone().set(0, -40, 0);
-      const color = new g.scene.background.constructor(0x00ff00);
-      const liveBefore = g.droplets.live.length;
-      g.droplets.spawn(pos, vel, color);
-      const spawned = g.droplets.live.length > liveBefore;
-
-      const t0 = performance.now();
-      while (g.hittables.paintedCount === 0 && performance.now() - t0 < 6000) {
-        await new Promise((r) => requestAnimationFrame(r));
-      }
-      return {
-        bledFromGround,
-        spawned,
-        painted: g.hittables.paintedCount,
-        stillFalling: g.droplets.live.length,
-        targetRadius: Math.round(t.hitRadius),
-      };
-    });
-  }
-
   // Audio: the bed must actually be running, and the ink must actually move the mix.
   let sound = null;
   if (!uncapped) {
@@ -465,7 +449,8 @@ async function main() {
 
 
   console.log(`  frame time   p50 ${ms(r.p50)}   p95 ${ms(r.p95)}   p99 ${ms(r.p99)}   worst ${ms(r.worst)}`);
-  console.log(`  fps          p50 ${fps(r.p50)}   p95 ${fps(r.p95)}`);
+  console.log(`  fps          p50 ${fps(r.p50)}   p95 ${fps(r.p95)}`
+    + (throttled ? `  ** capped by a ${cadenceFps.toFixed(0)}Hz display, not by the code **` : ''));
   if (uncapped && r.p50 < 1) {
     console.log('  ! p50 under 1ms means the JS loop has run ahead of the GPU: rAF is');
     console.log('    returning before the frame is drawn, so these deltas are JS time,');
@@ -501,12 +486,6 @@ async function main() {
   if (fall) {
     const ok = fall.airborneAfterAFrame > 0 && !fall.stampedImmediately && fall.landed;
     console.log(`  droplet      airborne ${fall.airborneAfterAFrame}, fell for ${fall.flightMs}ms, ${fall.landed ? 'landed' : 'NEVER LANDED'}  ${ok ? 'PASS' : 'FAIL (did not travel before splatting)'}`);
-  }
-  if (air) {
-    const noBleed = air.bledFromGround === 0;
-    const hit = air.spawned && air.painted > 0;
-    console.log(`  air: no bleed ${air.bledFromGround} airborne instances painted by ground splats  ${noBleed ? 'PASS' : 'FAIL (the XZ map is reaching the sky)'}`);
-    console.log(`  air: hittable drop aimed at r=${air.targetRadius} target painted ${air.painted}, ${air.stillFalling} still falling  ${hit ? 'PASS' : 'FAIL (drop passed through it)'}`);
   }
   if (blank && Number.isFinite(blank.coloured)) {
     // The premise moved. It used to be "with the ink wiped the frame is pure white",

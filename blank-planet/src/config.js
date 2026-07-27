@@ -25,6 +25,13 @@ export const terrain = {
   craterRadius: [42, 110],
   craterDepth: [22, 58],
   craterRim: 0.28,     // rim height as a fraction of depth
+
+  // Mountain ranges, carrying the vertical interest the floating islands used to.
+  // A ridged octave raised to a power: the power is what makes them ranges rather than
+  // more hills, because it pushes everything except the crest line back down to nothing.
+  mountainFrequency: 0.0016,
+  mountainAmplitude: 320,
+  mountainSharpness: 3.2,
 };
 
 export const flight = {
@@ -82,6 +89,9 @@ export const post = {
   // so it draws silhouettes on a world that is white on white and otherwise impossible
   // to read. Without it you cannot tell you are moving, or which way the moth is facing.
   contour: 0.55,
+  // Creases inside a shape, from the second difference of the same depth taps. Without
+  // it a 375-unit mountain is a blank white mass with an outline drawn round it.
+  crease: 0.35,
   contourWidth: 1.0, // in pixels
   vignette: 0.38,   // falls off to white, like the edge of the canvas
   fibre: 0.5,       // keep sampling almost straight, so curves stay curves
@@ -96,19 +106,16 @@ export const density = {
   mushrooms: 6500,
   rocks: 1600,
   reeds: 5200,
-  islands: 90,
   arches: 60,
   growths: 260,
   spires: 340,
 
-  // Lifeforms. Counts are low because each one is large enough to read from 300 units;
-  // these are landmarks to aim pigment at, not ground cover.
+  // Lifeforms, all rooted. Counts are low because each one is large enough to read from
+  // cruising altitude; these are landmarks to aim pigment at, not ground cover.
   anemones: 900,
   sacs: 220,
   shells: 130,
   ribs: 70,
-  grazers: 18,
-  spores: 260,
 };
 
 // Lifeforms move slowly enough that you notice it on the second look, not the first.
@@ -117,8 +124,12 @@ export const life = {
   swayAngle: 0.16,     // how far it leans
   breathSpeed: 0.22,   // sac inflate cycle
   breathAmount: 0.11,  // fraction of size
-  grazerSpeed: 0.045,  // radians per second around its own drift circle
-  sporeBob: 5.5,       // world units of vertical travel
+};
+
+// Fragment cost dominates this renderer, and it scales with the square of this number.
+// On a retina display the browser reports 2, which is four times the pixels of 1.
+export const render = {
+  pixelRatio: 2,
 };
 
 export const collision = {

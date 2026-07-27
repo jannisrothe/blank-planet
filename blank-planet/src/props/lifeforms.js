@@ -3,20 +3,19 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { applyInk } from '../ink/inkMaterial.js';
 import { scatter } from '../scatter.js';
 import { heightAt } from '../terrain.js';
-import { WORLD_SIZE, life as cfg, flight } from '../config.js';
+import { life as cfg } from '../config.js';
 
 /**
- * The things living on the planet. Six forms, picked to differ in composition rather
- * than to be six sizes of the same shape: vegetal, fleshy, shelled, skeletal, soft and
- * airborne.
+ * The things living on the planet. Four forms, picked to differ in composition rather
+ * than to be four sizes of the same shape: vegetal, fleshy, shelled, skeletal.
  *
- * They obey the world rule, so every one of them is ink-washed and invisible against
- * blank paper until you land pigment on it. You fly over a shape you can barely make out,
- * hit it, and only then find out what it was.
+ * All of them are rooted. The two airborne ones, drifting sky grazers and spore floaters,
+ * were cut along with the floating islands; the height they used to hold is in the
+ * mountain ranges now.
  *
- * The paint map is indexed by world XZ, not per object. A grazer drifting over painted
- * ground therefore takes that colour on and loses it again coming out the other side.
- * That falls out of the existing design rather than being built, and it is kept.
+ * They obey the world rule, so every one is ink-washed and carries no colour until you
+ * land pigment on it. Since they are all part of the ground they stand in, they read the
+ * world paint map by XZ like the terrain does.
  */
 
 /** @see features.js -- mergeGeometries refuses to mix indexed and non-indexed inputs. */
@@ -115,29 +114,6 @@ function ribsGeometry() {
   return merge(parts);
 }
 
-/** Soft: a flattened disc trailing tendrils, drifting at altitude. ~2 units across. */
-function grazerGeometry() {
-  const bell = new THREE.SphereGeometry(1, 26, 16).scale(1, 0.20, 1.35);
-  const dome = new THREE.SphereGeometry(0.55, 20, 14).scale(1, 0.55, 1).translate(0, 0.1, -0.2);
-  const tendrils = [];
-  for (let i = 0; i < 5; i++) {
-    tendrils.push(
-      new THREE.CylinderGeometry(0.018, 0.06, 1.8, 8)
-        .rotateX(Math.PI / 2)
-        .translate((i - 2) * 0.24, -0.04, 1.4),
-    );
-  }
-  return merge([bell, dome, ...tendrils]);
-}
-
-/** Airborne: a lumpy little float. Deliberately cheap, there are a lot of them. */
-function sporeGeometry() {
-  const body = new THREE.SphereGeometry(1, 14, 10);
-  const a = new THREE.SphereGeometry(0.45, 12, 8).translate(0.7, 0.3, 0);
-  const b = new THREE.SphereGeometry(0.32, 12, 8).translate(-0.4, -0.6, 0.4);
-  return merge([body, a, b]);
-}
-
 // ---------------------------------------------------------------------------
 // Placement and motion
 // ---------------------------------------------------------------------------
@@ -161,26 +137,6 @@ function instanced(geo, material, items) {
   mesh.instanceMatrix.needsUpdate = true;
   mesh.frustumCulled = false;
   return mesh;
-}
-
-/**
- * Two altitude bands with a gap over the cruise height, the same trick features.js uses
- * for islands. Nothing up here has collision, so keeping 270-340 empty is what stops the
- * moth flying through a creature, and it costs nothing.
- */
-function bandedAltitude(rand) {
-  const a = flight.spawnAltitude;
-  return rand() < 0.55 ? a * (0.20 + rand() * 0.42) : a * (1.35 + rand() * 0.50);
-}
-
-/**
- * The first thing you see is the entry screen, and its overlay is white but not opaque,
- * so anything sitting near the spawn point shows through it as a grey blob on a page
- * whose own text says it is blank. Airborne things keep clear of that spot.
- */
-const SPAWN_CLEAR = 170;
-function tooCloseToSpawn(x, y, z) {
-  return Math.hypot(x, y - flight.spawnAltitude, z) < SPAWN_CLEAR;
 }
 
 export function createLifeforms(density, rand) {
@@ -269,86 +225,8 @@ export function createLifeforms(density, rand) {
   });
   meshes.push(instanced(ribsGeometry(), inkMaterial(), ribs));
 
-  // -- sky grazers, each on its own slow circle. Translucent, so on the occasions you do
-  // pass through one it reads as drifting through something soft.
-  const half = WORLD_SIZE / 2 - 90;
-  const grazers = [];
-  for (let tries = 0; tries < density.grazers * 30 && grazers.length < density.grazers; tries++) {
-    const k = (25 + rand() * 35) / 2;
-    const cx = (rand() * 2 - 1) * half;
-    const cz = (rand() * 2 - 1) * half;
-    const orbit = 60 + rand() * 130;
-    const y = bandedAltitude(rand);
-    // Reject on the whole orbit, not just where it happens to start: a circle that
-    // passes through the spawn point would drift into it a minute later.
-    if (Math.abs(Math.hypot(cx, cz) - orbit) < SPAWN_CLEAR && tooCloseToSpawn(0, y, 0)) continue;
-    grazers.push({
-      cx, cz, orbit,
-      rate: cfg.grazerSpeed * (0.6 + rand() * 0.8) * (rand() < 0.5 ? -1 : 1),
-      phase: rand() * Math.PI * 2,
-      x: 0, y, z: 0,
-      sx: k, sy: k, sz: k,
-      // The bell is 3.64 long and 2 wide at scale 1. Use the long half-extent so aiming
-      // at one is forgiving; a disc that only answered to its own silhouette would be
-      // almost impossible to hit from behind at cruising speed.
-      hitRadius: k * 1.82,
-    });
-  }
-  const grazerMesh = instanced(
-    grazerGeometry(),
-    inkMaterial({ transparent: true, opacity: 0.78, depthWrite: true }, { perInstance: true }),
-    grazers,
-  );
-  meshes.push(grazerMesh);
-  animated.push((t) => {
-    grazers.forEach((it, i) => {
-      const a = t * it.rate + it.phase;
-      it.x = it.cx + Math.cos(a) * it.orbit;
-      it.z = it.cz + Math.sin(a) * it.orbit;
-      // nose along the tangent, and lean into the turn
-      it.ry = -a + (it.rate > 0 ? -Math.PI / 2 : Math.PI / 2);
-      it.rz = it.rate > 0 ? 0.16 : -0.16;
-      writeMatrix(grazerMesh, i, it);
-    });
-    grazerMesh.instanceMatrix.needsUpdate = true;
-  });
-
-  // -- spores, filling the air column so there is something between you and the ground
-  const spores = [];
-  for (let tries = 0; tries < density.spores * 8 && spores.length < density.spores; tries++) {
-    const k = 2 + rand() * 4;
-    const x = (rand() * 2 - 1) * half;
-    const z = (rand() * 2 - 1) * half;
-    // Spread over the whole column you can fly in, cruise band included: these are small
-    // enough that drifting through one is the point rather than a collision.
-    const base = 40 + rand() * (flight.ceiling - 40);
-    if (tooCloseToSpawn(x, base, z)) continue;
-    spores.push({
-      x, z, base,
-      y: 0,
-      sx: k, sy: k, sz: k,
-      ry: rand() * Math.PI * 2,
-      rate: 0.15 + rand() * 0.3,
-      phase: rand() * Math.PI * 2,
-      hitRadius: k * 1.1,
-    });
-  }
-  const sporeMesh = instanced(sporeGeometry(), inkMaterial({}, { perInstance: true }), spores);
-  meshes.push(sporeMesh);
-  animated.push((t) => {
-    spores.forEach((it, i) => {
-      it.y = it.base + Math.sin(t * it.rate + it.phase) * cfg.sporeBob;
-      it.rx = t * it.rate * 0.4 + it.phase;
-      writeMatrix(sporeMesh, i, it);
-    });
-    sporeMesh.instanceMatrix.needsUpdate = true;
-  });
-
   return {
     meshes,
-    // The two airborne layers, for the droplet hit test. The rooted ones stay on the
-    // world paint map: they are part of the ground they stand in.
-    airborne: [{ mesh: grazerMesh, items: grazers }, { mesh: sporeMesh, items: spores }],
     /** @param {number} elapsed seconds */
     update(elapsed) {
       for (const fn of animated) fn(elapsed);

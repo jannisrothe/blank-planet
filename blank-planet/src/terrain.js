@@ -20,6 +20,7 @@ const noise = [
   createNoise2D(noiseRand),
   createNoise2D(noiseRand),
   createNoise2D(noiseRand), // basins
+  createNoise2D(noiseRand), // mountain ranges
 ];
 
 /** Ridged noise: fold the signal at zero and invert, turning smooth hills into crests. */
@@ -63,6 +64,12 @@ export function heightAt(x, z) {
   h += (ridged(x, z, cfg.frequency * 1.6, noise[3]) - 0.5) * cfg.ridgeAmplitude;
   h += noise[4](x * cfg.basinFrequency, z * cfg.basinFrequency) * cfg.basinAmplitude;
 
+  // Ranges. ridged() peaks at 1 along its crest line and falls away either side; the
+  // power keeps only the crest, so the result is a few tall spines rather than a world
+  // of uniform lumps. This is where the height that used to be floating islands went.
+  const crest = ridged(x, z, cfg.mountainFrequency, noise[5]);
+  h += crest ** cfg.mountainSharpness * cfg.mountainAmplitude;
+
   for (const c of craters) {
     const d = Math.hypot(x - c.x, z - c.z);
     if (d >= c.radius) continue;
@@ -80,6 +87,26 @@ export function heightAt(x, z) {
 
   return h;
 }
+
+/**
+ * Highest ground anywhere, measured once rather than reasoned about.
+ *
+ * The flight ceiling and the camera far plane both have to clear it. When the ceiling
+ * was a hand-picked constant it silently capped the moth *below* the ground clearance
+ * over a tall peak, because flight.js applies the ceiling after the floor.
+ */
+export const terrainMax = (() => {
+  const N = 220;
+  const step = WORLD_SIZE / N;
+  let max = -Infinity;
+  for (let i = 0; i <= N; i++) {
+    for (let j = 0; j <= N; j++) {
+      const h = heightAt(-WORLD_SIZE / 2 + i * step, -WORLD_SIZE / 2 + j * step);
+      if (h > max) max = h;
+    }
+  }
+  return max;
+})();
 
 /**
  * Near-neutral ground. Pigment supplies colour now, so anything strongly coloured here

@@ -22,6 +22,7 @@ uniform float uGrain;
 uniform float uGrainScale;
 uniform float uOutline;
 uniform float uContour;
+uniform float uCrease;
 uniform float uContourWidth;
 uniform float uVignette;
 uniform float uFibre;
@@ -92,17 +93,27 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth,
   // same white, so the gradient above finds nothing at all and the world is not merely
   // colourless, it is genuinely not there to look at. Sampling the depth buffer instead
   // draws the silhouettes: the horizon, the rim of an island, the shape of a creature.
-  if (uContour > 0.001) {
+  if (uContour > 0.001 || uCrease > 0.001) {
     vec2 c = texelSize * uContourWidth;
     float z0 = getViewZ(readDepth(uv));
-    float gx = abs(z0 - getViewZ(readDepth(uv + vec2(c.x, 0.0))))
-             + abs(z0 - getViewZ(readDepth(uv - vec2(c.x, 0.0))));
-    float gy = abs(z0 - getViewZ(readDepth(uv + vec2(0.0, c.y))))
-             + abs(z0 - getViewZ(readDepth(uv - vec2(0.0, c.y))));
-    // Relative to the distance, or a line is a slab in the foreground and invisible at
-    // the far end of a 900-unit world.
-    float g = (gx + gy) / max(abs(z0), 1.0);
+    float zr = getViewZ(readDepth(uv + vec2(c.x, 0.0)));
+    float zl = getViewZ(readDepth(uv - vec2(c.x, 0.0)));
+    float zu = getViewZ(readDepth(uv + vec2(0.0, c.y)));
+    float zd = getViewZ(readDepth(uv - vec2(0.0, c.y)));
+    float inv = 1.0 / max(abs(z0), 1.0);
+
+    // Silhouettes: a first difference, so it fires where one surface ends and another
+    // begins. Relative to distance, or a line is a slab in the foreground and invisible
+    // at the far end of a 1200-unit world.
+    float g = (abs(z0 - zr) + abs(z0 - zl) + abs(z0 - zu) + abs(z0 - zd)) * inv;
     best *= 1.0 - smoothstep(0.012, 0.09, g) * uContour;
+
+    // Creases: the second difference over the same four taps, so it costs nothing extra.
+    // Silhouette alone leaves a mountain as a blank white mass with an outline round it,
+    // because nothing on the flank is an edge. This finds the ridgelines and gullies
+    // inside the shape, which is what makes a landform read as one.
+    float lap = abs(zr + zl + zu + zd - 4.0 * z0) * inv;
+    best *= 1.0 - smoothstep(0.0015, 0.02, lap) * uCrease;
   }
 
   // Paper. Screen-locked on purpose: the sheet does not move when the camera does.
@@ -118,7 +129,7 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth,
 
 export class WatercolorEffect extends Effect {
   constructor({ radius = 3, grain = 0.09, grainScale = 900, outline = 0.28,
-                contour = 0.55, contourWidth = 1.0,
+                contour = 0.55, crease = 0.35, contourWidth = 1.0,
                 vignette = 0.5, fibre = 2.2 } = {}) {
     super('WatercolorEffect', fragment, {
       // The contour reads the depth buffer, which postprocessing only attaches, and only
@@ -130,6 +141,7 @@ export class WatercolorEffect extends Effect {
         ['uGrainScale', new Uniform(grainScale)],
         ['uOutline', new Uniform(outline)],
         ['uContour', new Uniform(contour)],
+        ['uCrease', new Uniform(crease)],
         ['uContourWidth', new Uniform(contourWidth)],
         ['uVignette', new Uniform(vignette)],
         ['uFibre', new Uniform(fibre)],

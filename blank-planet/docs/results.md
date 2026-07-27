@@ -50,15 +50,15 @@ Every run asserts these, and they fail loudly rather than silently:
 | Terrain height span, 256² grid | 71.5 units | **138.1 units** |
 | Deepest bowl on the z=0 line | 6.2 below its rim | **18.5 below its rim** |
 | Draw calls | 33 | 40 |
-| fps p50 / p95, vsync on | 59.9 / 56.8 | **30.0 / 29.7** |
+| fps p50 / p95, vsync on | 59.9 / 56.8 | *30.0 / 29.7, void — see below* |
 
 ### Airborne paint, and where the frame rate went
 
-Taking islands, grazers and spores off the world paint map put p50 back to **59.9 fps**
-from 30.0, with the same object count and the same draw calls. That settles what the
-fill-rate cost actually was: a `texture2D` fetch per fragment on large screen-covering
-surfaces. Islands are the biggest of those, and they were sampling a 2048² map to find
-out they were white.
+This was reported as putting p50 back to 59.9 fps from 30.0 and as identifying the
+fill-rate cost. **That is withdrawn.** The 30.0 baseline was a 30Hz display cap, not the
+renderer. The two numbers were taken hours apart and are not comparable. Re-measured
+later on the same machine at the same moment, the build before this change and the build
+after it both read 30.0 fps, because the display was capped again.
 
 Two gates now assert the behaviour, because "the page is white" would also be true if
 those objects had simply stopped rendering:
@@ -76,11 +76,11 @@ pixels and painting read as speckle; the round trip is why the island and grazer
 bands are now written as fractions of `flight.spawnAltitude` rather than as the literal
 numbers that suited a 300-unit cruise.
 
-The frame rate halved with the altitude change and has not moved since. It is fill-bound,
-not object-bound: cutting flowers, grass, reeds and mushrooms by 85% (72,700 instances
-down to 9,700) left p50 at exactly 30.0 fps, so the counts were restored. Adding the six
-lifeform layers on top also left it at 30.0. The cost is in fragments, so it lives in the
-post pass or the render scale, and neither has been touched yet.
+**Every reading of exactly 30.0 fps in this section is void.** They were taken while the
+display was running at 30Hz, which caps the harness whatever the code does. The
+conclusions drawn from them -- that the renderer was fill-bound, that cutting 72,700
+instances changed nothing, that the altitude change halved the frame rate -- are
+withdrawn. Nothing could have changed anything inside that cap. See below.
 
 ## v4 (contours, spatter, and the splat quad)
 
@@ -107,7 +107,9 @@ Chroma, not brightness. Grey line work passes, a surviving splat does not.
 ### The splat quad
 
 Turning the spatter on (`satellites` 0 → 0.5) cost p95 57.1 → 16.9 fps. Measured, not
-guessed: contour alone cost 57.1 → 48.5, spatter alone 57.1 → 16.9.
+guessed: contour alone cost 57.1 → 48.5, spatter alone 57.1 → 16.9. These four runs were
+back to back in one session with the display at 60Hz, so unlike the numbers above they
+are comparable to each other.
 
 The cause was not the spatter. `PaintMap` rendered a full-screen −1..1 quad for every
 stamp, so the fragment shader ran over all 4.2 million texels of the map and discarded
@@ -128,6 +130,56 @@ They were never broken. Measured on the real keyboard path: 16 → 30.2 holding 
 seconds, → 9.1 holding S for three. What was missing was any way to perceive it, over a
 world with no visible features and no readout. The contour supplies the first and the
 hint line now carries the speed.
+
+## v5 (mountains instead of floating things)
+
+Everything airborne is gone: floating islands, sky grazers, spore floaters. The height
+they carried is in the terrain now, as a ridged octave raised to a power, which is what
+makes it a few tall ranges rather than a world of uniform lumps.
+
+| | before | after |
+|---|---|---|
+| Highest ground | 67 units | **375 units** |
+| Flight ceiling | 420, hand-picked | **545, derived from the terrain** |
+| Draw calls | 40 | 36 |
+
+Two things fell out of it:
+
+- **The ceiling was applied after the ground clearance,** so over a peak taller than
+  `ceiling - groundClearance` the ceiling won and held the moth inside the mountain. The
+  clamps are now in the other order, and the ceiling is derived from a measured
+  `terrainMax` rather than picked by hand, so raising the mountains cannot reintroduce it.
+- **Silhouette alone leaves a mountain as a blank white mass** with an outline drawn round
+  it, because no point on a smooth flank is an edge. The contour now also takes the second
+  difference of the same four depth taps, which finds the ridgelines and gullies inside
+  the shape. It reuses the taps, so it costs nothing.
+
+Removing every airborne thing left `hittables.js` and the per-instance ink path with
+nothing to act on, so both are gone. They are in history at `86e0a3f` if birds ever
+come back.
+
+### The 30 fps that was never real
+
+A session's worth of frame numbers turned out to be measuring the display, not the build.
+
+The tell was that nothing moved them. Render scale 2 → 1.5 → 1: 30.0 fps. Kuwahara radius
+2 → 1 → 0: 30.0 fps. Then, in-page: post pass disabled, ground hidden, every instanced
+mesh hidden — 33.3 ms a frame, all of it. A blank `<body>` with no WebGL at all ran at
+30.0 fps in the same browser.
+
+The display was at 30Hz. `devicePixelRatio` was also 1 in that harness, so the render
+scale sweep was comparing 1 against 1 three times.
+
+`measure.mjs` now probes rAF on a blank page before it loads anything and prints the
+cadence, and flags the whole run when it comes back under 50 fps:
+
+```
+  cadence  blank page runs at 30.0 fps  ** THROTTLED: frame numbers below are meaningless **
+  fps      p50 30.0 fps   p95 29.5 fps  ** capped by a 30Hz display, not by the code **
+```
+
+The lesson is the same one as gate 5, one level up: a number that cannot move is not a
+measurement, and "it did not change" is only evidence if something *could* have changed.
 
 ## Bugs that produced confident, wrong output
 
@@ -166,12 +218,18 @@ Each of these looked fine until something was measured or rendered side by side.
    flew tail-first with its antennae trailing. Not visible in any gate. Only a screenshot
    of the moth on its own showed it, and the harness's shot always frames it from behind
    and too small to read.
-11. **The world paint map has no height, and nothing but terrain was ever tested for
+11. **A frame-rate number that could not move was read as a measurement.** Runs reporting
+   exactly 30.0 fps were the display at 30Hz, not the renderer. Every conclusion drawn
+   from them was wrong, including a confident "it is fill-bound, not object-bound" backed
+   by an A/B that cut 72,700 instances and changed nothing — because nothing inside a hard
+   cap can change anything. The harness now measures what a blank page can do before it
+   measures the build.
+12. **The world paint map has no height, and nothing but terrain was ever tested for
    impact.** One texture indexed by world XZ, so a splat on the ground coloured the whole
    column above it, and a drop aimed at a creature passed through. Both halves of the same
    omission, and neither showed up in any gate: everything was still white before you
    painted and coloured after, which is all the gates were asking.
-12. **The entry screen rendered from the world origin.** `flight.update()` returns early
+13. **The entry screen rendered from the world origin.** `flight.update()` returns early
    until the player enters, so it never placed the camera, and the first thing you saw was
    the view from inside the ground. It went unnoticed while the world was small; at a
    300-unit spawn the two views have nothing in common.
