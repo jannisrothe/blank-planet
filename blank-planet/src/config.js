@@ -59,7 +59,7 @@ export const flight = {
 // of the capillary, advection and drying machinery exists any more.
 export const paint = {
   resolution: 2048,    // texels across the world: 0.31 world units each
-  radius: 9,           // dialled in on the slider; small on purpose
+  radius: 18,          // dialled in on the slider; 9 read too small at a 200-unit cruise
   satellites: 0.52,    // spatter droplets thrown clear of the splat, biased downrange
   spikes: 0.0,         // radial fingers, off for the same reason
   wobble: 0.16,        // gentle out-of-round, so a splat is organic but never jagged
