@@ -316,6 +316,22 @@ async function main() {
     await page.evaluate(() => {
       const g = globalThis.__blankPlanet;
       (g.clearPigment ?? (() => g.paint.clear()))();
+
+      // Aim at the ground before measuring anything. The walk leaves the camera wherever
+      // the flight path put it, which after the beauty-shot climb is usually the sky, and
+      // then both halves of this gate are measuring framing luck: a frame of empty white
+      // passes "no pigment" for the wrong reason and fails "contours" for the wrong
+      // reason. Flattening the mountains was what exposed it -- the horizon dropped out
+      // of frame and the contour reading fell from 7% to 0.26% with nothing wrong.
+      if (g.flight && g.camera && g.heightAt) {
+        g.input.active = false;
+        g.flight.state.locked = false;
+        const p = g.flight.state.pos;
+        const ground = g.heightAt(p.x, p.z);
+        g.camera.position.set(p.x, ground + 140, p.z + 150);
+        g.camera.lookAt(p.x, ground, p.z);
+      }
+
       // The moth is deliberately never ink-washed, so it is always visible. This gate
       // is about whether the WORLD disappears, so the moth is not part of it.
       if (g.moth) g.moth.root.visible = false;

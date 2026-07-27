@@ -137,11 +137,19 @@ Everything airborne is gone: floating islands, sky grazers, spore floaters. The 
 they carried is in the terrain now, as a ridged octave raised to a power, which is what
 makes it a few tall ranges rather than a world of uniform lumps.
 
-| | before | after |
-|---|---|---|
-| Highest ground | 67 units | **375 units** |
-| Flight ceiling | 420, hand-picked | **545, derived from the terrain** |
-| Draw calls | 40 | 36 |
+The ranges first ran at ten times this height and were cut back: blades at 375 units and
+a 66.8 degree mean slope, against hills now.
+
+| | before | first pass | now |
+|---|---|---|---|
+| Highest ground | 67 units | 375 units | **91 units** |
+| Height span, 256² grid | 138 | 446 | **162 units** |
+| Mean slope | — | 66.8° | **32.1°** |
+| Flight ceiling | 420, hand-picked | 545, derived | 420, derived |
+| Draw calls | 40 | 36 | 36 |
+
+The rolling elevation is not the ranges: it comes from the basin and fbm octaves, so
+flattening the mountains left the world undulating rather than flat.
 
 Two things fell out of it:
 
@@ -153,6 +161,11 @@ Two things fell out of it:
   it, because no point on a smooth flank is an edge. The contour now also takes the second
   difference of the same four depth taps, which finds the ridgelines and gullies inside
   the shape. It reuses the taps, so it costs nothing.
+- **The `contours` gate was measuring framing luck.** It read whatever the camera happened
+  to be pointing at when the walk ended, which after the beauty-shot climb is usually the
+  sky. Flattening the mountains dropped the horizon out of frame and the reading fell from
+  7% to 0.26% with nothing actually wrong. The gate now aims at the ground first and comes
+  back at 20.7% twice running.
 
 Removing every airborne thing left `hittables.js` and the per-instance ink path with
 nothing to act on, so both are gone. They are in history at `86e0a3f` if birds ever

@@ -26,16 +26,18 @@ export const terrain = {
   craterDepth: [22, 58],
   craterRim: 0.28,     // rim height as a fraction of depth
 
-  // Mountain ranges, carrying the vertical interest the floating islands used to.
-  // A ridged octave raised to a power: the power is what makes them ranges rather than
-  // more hills, because it pushes everything except the crest line back down to nothing.
+  // Ranges. A ridged octave raised to a power, so the crest line survives and the rest
+  // falls away. At a tenth of the height it first ran at, and with a lower power, which
+  // is what takes the steepness out: a higher power narrows the crest into a blade.
+  // The rolling elevation underneath comes from the basin and fbm octaves above, not
+  // from this, so flattening the ranges does not flatten the world.
   mountainFrequency: 0.0016,
-  mountainAmplitude: 320,
-  mountainSharpness: 3.2,
+  mountainAmplitude: 32,
+  mountainSharpness: 2.0,
 };
 
 export const flight = {
-  driftSpeed: 16,       // twice the ground flow the old 6 gave at 150 units
+  driftSpeed: 20.5,     // dialled in on the slider
   minSpeed: 2,
   maxSpeed: 40,         // headroom, so W still does something at the new cruise speed
   trimRate: 7,          // how fast W/S change speed
@@ -57,9 +59,8 @@ export const flight = {
 // of the capillary, advection and drying machinery exists any more.
 export const paint = {
   resolution: 2048,    // texels across the world: 0.31 world units each
-  radius: 18,          // splat radius in world units; scaling this with the altitude to 30
-                       // filled the frame with one click, so it stays small on purpose
-  satellites: 0.5,     // spatter droplets thrown clear of the splat, biased downrange
+  radius: 9,           // dialled in on the slider; small on purpose
+  satellites: 0.52,    // spatter droplets thrown clear of the splat, biased downrange
   spikes: 0.0,         // radial fingers, off for the same reason
   wobble: 0.16,        // gentle out-of-round, so a splat is organic but never jagged
   edgeSoftness: 0.035, // crisp but smooth; not feathered, not aliased
