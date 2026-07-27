@@ -468,7 +468,10 @@ async function main() {
       // whatever speed its trim wandered to, and inheriting either makes this measure
       // the walk rather than the geometry.
       st.turn = 0;
-      st.speed = 20;
+      // Flat out, so a lap takes about half the window. At cruising speed the lap and the
+      // window were both about a hundred seconds, and the gate failed or passed on frame
+      // rate rather than on geometry.
+      st.speed = 40;
       // Level, and high enough that the ground-clearance rule never fires. That rule
       // pitches up whenever the moth clips the floor and nothing pulls it back down, so
       // a long flight spirals outward into a wider and slower orbit and never closes.
@@ -484,9 +487,9 @@ async function main() {
         await new Promise((r) => requestAnimationFrame(r));
         st.pitch = 0;
         st.targetPitch = 0;
-        st.speed = 20;
+        st.speed = 40;
         const dt = performance.now() - t0;
-        if (dt > 25000) {
+        if (dt > 20000) {
           const d = st.pos.distanceTo(start);
           if (d < closest) { closest = d; at = dt; }
         }

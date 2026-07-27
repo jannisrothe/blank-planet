@@ -47,11 +47,13 @@ export const flight = {
   trimRate: 7,          // how fast W/S change speed
   turnRate: 0.0016,     // radians per pixel of mouse movement
   maxPitch: 0.85,       // radians, keeps you from looping over the top
-  smoothing: 2.4,       // higher is snappier; low values feel like heavy drifting
+  smoothing: 5.2,       // higher is snappier; low values feel like heavy drifting
   // Altitudes are above the surface, not above the origin. At 200 on a radius-180 planet
   // the whole ball fits on screen and it stops being somewhere you are.
-  spawnAltitude: 50,
-  groundClearance: 25,  // never descend closer than this to the terrain
+  // Spawn matches the clearance: anything lower is dead on arrival, since the first
+  // frame's floor clamp lifts the moth to the clearance anyway.
+  spawnAltitude: 75,
+  groundClearance: 75,  // never descend closer than this to the terrain
   ceiling: 260,
   // Chase camera, in the moth's local frame.
   camBack: 9.5,
@@ -63,8 +65,8 @@ export const flight = {
 // of the capillary, advection and drying machinery exists any more.
 export const paint = {
   resolution: 2048,    // texels across the world: 0.31 world units each
-  radius: 18,          // dialled in on the slider; 9 read too small at a 200-unit cruise
-  satellites: 0.52,    // spatter droplets thrown clear of the splat, biased downrange
+  radius: 12,          // dialled in on the slider
+  satellites: 0.3,     // spatter droplets thrown clear of the splat, biased downrange
   spikes: 0.0,         // radial fingers, off for the same reason
   wobble: 0.16,        // gentle out-of-round, so a splat is organic but never jagged
   edgeSoftness: 0.035, // crisp but smooth; not feathered, not aliased

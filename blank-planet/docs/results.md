@@ -274,6 +274,19 @@ closes. The gate now starts above the highest ground and holds the pitch itself 
 just the target: whether the world wraps is a separate question from terrain avoidance.
 Two consecutive runs, 1 unit both times.
 
+### The harness p95 is not the app's p95
+
+With the display at 59.9 fps, `measure` reports p50 59.9 and p95 12-14 fps. Measured
+in-page instead, over 400 frames after the load garbage has cleared, the same build gives
+**p50 16.7 ms, p95 18.0 ms, worst 23.9 ms** — and stays there with the lifeform animation
+off, with the post pass off, and while painting four and eight times a second.
+
+So the spikes are in the harness's own instrumentation, not the render loop. Its window
+opens straight after a `page.screenshot()` and it dispatches a synthetic mousemove every
+frame for the whole run; it also records only ~520 samples in a 12-second window where 60
+fps would give ~720. Treat its p50 and its draw-call count as real and its p95 as an upper
+bound. This is not fixed, only identified.
+
 ## Bugs that produced confident, wrong output
 
 Each of these looked fine until something was measured or rendered side by side.
